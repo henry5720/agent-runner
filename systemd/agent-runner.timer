@@ -1,0 +1,9 @@
+# `agent-runner on` 打開：立刻跑一輪，之後每 roundIntervalMinutes 分鐘一輪。
+# 間隔（OnUnitActiveSec）不寫在這裡：從 src/config.ts 寫進 agent-runner.timer.d/config.conf（src/systemd.ts）。
+# 沒有 [Install]：開機不會自己打開，打開永遠要手動。
+[Unit]
+Description=agent-runner: a round every roundIntervalMinutes (src/config.ts) while on
+
+[Timer]
+OnActiveSec=0
+Unit=agent-runner.service

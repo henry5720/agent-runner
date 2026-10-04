@@ -1,0 +1,10 @@
+# runner 自己失敗時（agent-runner.service 的 OnFailure=）發 Slack，附 journalctl 最後幾行。
+# 同一原因一晚只發一次，記錄在 ~/.local/state/agent-runner/failure-notified.json（src/failure.ts）。
+# systemd 會傳 $MONITOR_UNIT／$MONITOR_SERVICE_RESULT／$MONITOR_INVOCATION_ID。
+[Unit]
+Description=agent-runner: tell the operator the runner itself failed
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/agents/agent-runner
+ExecStart=%h/agents/agent-runner/bin/agent-runner notify-failure

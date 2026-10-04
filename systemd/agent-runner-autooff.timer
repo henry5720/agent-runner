@@ -1,0 +1,7 @@
+# 自動關（預設平日 08:00 Asia/Taipei；host 是 UTC → 00:00 UTC）。
+# 時間（OnCalendar）不寫在這裡：從 src/config.ts 的 autoOff 寫進 agent-runner-autooff.timer.d/config.conf（src/systemd.ts）。
+[Unit]
+Description=agent-runner: switch off at config.autoOff (src/config.ts)
+
+[Timer]
+Unit=agent-runner-autooff.service

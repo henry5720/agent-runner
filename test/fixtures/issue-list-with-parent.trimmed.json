@@ -1,0 +1,98 @@
+[
+  {
+    "assignees": [],
+    "author": {
+      "id": "MDQ6VXNlcjU0MzU0MjYy",
+      "is_bot": false,
+      "login": "henry5720",
+      "name": "henry5720"
+    },
+    "blockedBy": {
+      "nodes": [],
+      "totalCount": 0
+    },
+    "body": "<redacted body>",
+    "labels": [
+      {
+        "id": "LA_kwDOL_3p1M8AAAAClik9sQ",
+        "name": "ready-for-agent",
+        "description": "",
+        "color": "ededed"
+      }
+    ],
+    "number": 2692,
+    "parent": null,
+    "subIssuesSummary": {
+      "completed": 3,
+      "percentCompleted": 25,
+      "total": 12
+    },
+    "title": "<redacted title 2692>"
+  },
+  {
+    "assignees": [],
+    "author": {
+      "id": "MDQ6VXNlcjU0MzU0MjYy",
+      "is_bot": false,
+      "login": "henry5720",
+      "name": "henry5720"
+    },
+    "blockedBy": {
+      "nodes": [],
+      "totalCount": 0
+    },
+    "body": "<redacted body>",
+    "labels": [
+      {
+        "id": "LA_kwDOL_3p1M8AAAAClik9sQ",
+        "name": "ready-for-agent",
+        "description": "",
+        "color": "ededed"
+      }
+    ],
+    "number": 2456,
+    "parent": {
+      "id": "I_kwDOL_3p1M8AAAABRt0cEQ",
+      "number": 2283,
+      "state": "CLOSED",
+      "title": "<redacted>",
+      "url": "https://github.com/ShuChenAI/teamsync-frontend/issues/2283"
+    },
+    "subIssuesSummary": {
+      "completed": 4,
+      "percentCompleted": 66,
+      "total": 6
+    },
+    "title": "<redacted title 2456>"
+  },
+  {
+    "assignees": [],
+    "author": {
+      "id": "MDQ6VXNlcjU0MzU0MjYy",
+      "is_bot": false,
+      "login": "henry5720",
+      "name": "henry5720"
+    },
+    "blockedBy": {
+      "nodes": [],
+      "totalCount": 0
+    },
+    "body": "<redacted body>",
+    "labels": [
+      {
+        "id": "LA_kwDOL_3p1M8AAAAClik9sQ",
+        "name": "ready-for-agent",
+        "description": "",
+        "color": "ededed"
+      }
+    ],
+    "number": 2326,
+    "parent": null,
+    "subIssuesSummary": {
+      "completed": 0,
+      "percentCompleted": 0,
+      "total": 0
+    },
+    "title": "<redacted title 2326>"
+  }
+]

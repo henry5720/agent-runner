@@ -1,0 +1,20 @@
+# 跑一輪（挑單 → sandbox → draft PR）。由 agent-runner.timer 叫，不要 enable。
+[Unit]
+Description=agent-runner: one round
+# 失敗（含 TimeoutStartSec 到、off --now 等不到 TimeoutStopSec 被硬殺）→ 發 Slack，同一原因一晚一次
+OnFailure=agent-runner-failure.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/agents/agent-runner
+ExecStart=%h/agents/agent-runner/bin/agent-runner round
+# 開關看 agent-runner.timer：off／自動關之後，正在做的那張做完就不接下一張
+Environment=AGENT_RUNNER_FOLLOW_TIMER=1
+# off --now（systemctl stop）：只對 node 發 SIGUSR2 → abort 那張單的 signal → sandcastle 拆 container →
+# crash 收尾（留言、拿掉 agent-in-progress）。不用 SIGTERM：sandcastle 的 SIGTERM handler 會直接 exit(1)。
+# mixed：docker exec 等子行程等 node 收完尾才 SIGKILL；超過 TimeoutStopSec 就硬殺，留給下一輪掃殘留。
+KillMode=mixed
+KillSignal=SIGUSR2
+TimeoutStopSec=5min
+# 每張 timeoutMinutes（60）× 一輪 maxPerRound（2）張，再留建 image 的時間；只是最後防線
+TimeoutStartSec=3h
