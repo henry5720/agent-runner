@@ -4,7 +4,7 @@ import { systemClock } from "./clock.js";
 import { config } from "./config.js";
 import { createGit } from "./git.js";
 import { createGitHub } from "./github.js";
-import { consoleNotifier } from "./notifier.js";
+import { consoleNotifier, createSlackNotifier } from "./notifier.js";
 import { runRound } from "./runRound.js";
 import { createSandbox } from "./sandbox.js";
 
@@ -25,10 +25,14 @@ const secrets = readSecrets(config.secretsFile);
 const token = secrets.CLAUDE_CODE_OAUTH_TOKEN;
 if (!token) throw new Error(`CLAUDE_CODE_OAUTH_TOKEN missing in ${config.secretsFile}`);
 
+// 環境變數優先（手動測試時好換），沒有就讀 secret 檔；都沒有就只印 stdout，照樣做單
+const webhookUrl = process.env.AGENT_RUNNER_SLACK_WEBHOOK_URL || secrets.AGENT_RUNNER_SLACK_WEBHOOK_URL;
+if (!webhookUrl) console.warn(`[notify] AGENT_RUNNER_SLACK_WEBHOOK_URL 沒設（env 或 ${config.secretsFile}），通知只印到 stdout`);
+
 await runRound(config, {
   github: createGitHub({ repo: config.repo, pickSearch: config.pickSearch }),
   git: createGit({ repoPath: config.botClonePath }),
   sandbox: createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: token }),
-  notifier: consoleNotifier,
+  notifier: webhookUrl ? createSlackNotifier(webhookUrl) : consoleNotifier,
   clock: systemClock,
 });

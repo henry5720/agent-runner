@@ -2,6 +2,7 @@ import type { Config } from "./config.js";
 import { decide } from "./decide.js";
 import { imageTag } from "./image.js";
 import { failureReason, IN_PROGRESS_LABEL, removeOldWorktrees, wrapUpCrash, wrapUpNeedsInfo } from "./endings.js";
+import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle } from "./prBody.js";
 import type { Deps } from "./ports.js";
 import type { Issue } from "./types.js";
@@ -10,7 +11,7 @@ const READY_LABEL = "ready-for-agent";
 
 /**
  * 一輪：fetch → 刪超過 3 天的 worktree → 確認 image → 殘留 agent-in-progress 照 crash 收尾 → 列候選 → decide()（含 maxPerRound 上限）→ 一次一張處理。
- * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash 見 endings.ts。Slack、flock 在其他票加。
+ * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash 見 endings.ts。每張單收尾後發一則 Slack（notice.ts）。flock 在其他票加。
  */
 export async function runRound(config: Config, deps: Deps): Promise<void> {
   const { github, git, sandbox, clock } = deps;
@@ -22,7 +23,9 @@ export async function runRound(config: Config, deps: Deps): Promise<void> {
 
   // flock 保證同時只有一輪，所以這時還帶 agent-in-progress 的都是被硬殺的殘留；不重跑，照 crash 收尾
   for (const stale of await github.listInProgress()) {
-    await wrapUpCrash(deps, stale.number, "上一輪 runner 被中斷（硬殺或關機），沒有收尾");
+    const reason = "上一輪 runner 被中斷（硬殺或關機），沒有收尾";
+    const worktreePath = await wrapUpCrash(deps, stale.number, reason);
+    await notify(config, deps, { issue: stale, ending: { kind: "crash", reason, worktreePath } });
   }
 
   const candidates = await github.listCandidates();
@@ -30,10 +33,22 @@ export async function runRound(config: Config, deps: Deps): Promise<void> {
 
   for (const action of actions) {
     switch (action.kind) {
-      case "pickup":
-        await handleIssue(config, deps, action.issue, { tag, baseRef });
+      case "pickup": {
+        const startedAt = clock.now().getTime();
+        const ending = await handleIssue(config, deps, action.issue, { tag, baseRef });
+        await notify(config, deps, { issue: action.issue, durationMs: clock.now().getTime() - startedAt, ending });
         break;
+      }
     }
+  }
+}
+
+/** Slack 是通知，不是結局的一部分：發不出去只記 log，不影響這張單或下一張 */
+async function notify(config: Config, { notifier }: Deps, input: { issue: { number: number; title?: string }; durationMs?: number; ending: Ending }) {
+  try {
+    await notifier.notify(noticeText({ repo: config.repo, ...input }));
+  } catch (err) {
+    console.error(`[notify] #${input.issue.number} Slack 通知失敗：${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -44,7 +59,7 @@ async function ensureImage(config: Config, { git, sandbox }: Deps, baseRef: stri
   return tag;
 }
 
-async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag: string; baseRef: string }) {
+async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag: string; baseRef: string }): Promise<Ending> {
   const { github, git, sandbox } = deps;
   const n = issue.number;
   const branch = `agent/${n}`;
@@ -64,10 +79,14 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   let result, review;
   try {
     result = await sandbox.implement({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
-    if (result.outcome === "needs-info") return wrapUpNeedsInfo(deps, n, result);
+    if (result.outcome === "needs-info") {
+      await wrapUpNeedsInfo(deps, n, result);
+      return { kind: "needs-info", questions: result.questions };
+    }
     review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
   } catch (err) {
-    return wrapUpCrash(deps, n, failureReason(err, signal, config.timeoutMinutes));
+    const reason = failureReason(err, signal, config.timeoutMinutes);
+    return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, n, reason) };
   }
 
   // 開 PR（push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN）
@@ -84,4 +103,5 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
     await github.comment(n, `🤖 有檢查沒過，開了 \`[WIP]\` draft PR，可以從那裡接手：${pr.url}\n\n沒過的檢查：\n\n${review.failedChecks.map((c) => `- ${c}`).join("\n")}`);
   }
   await github.removeLabel(n, IN_PROGRESS_LABEL);
+  return review.outcome === "wip" ? { kind: "wip", pr, failedChecks: review.failedChecks } : { kind: "pass", pr };
 }

@@ -32,8 +32,8 @@ export function failureReason(err: unknown, signal: AbortSignal, timeoutMinutes:
   return message.split("\n")[0]?.trim() || "未知錯誤";
 }
 
-/** timeout／crash：拿掉 agent-in-progress、留言寫原因；只有 worktree 真的還在才附路徑 */
-export async function wrapUpCrash({ github, git }: Deps, n: number, reason: string): Promise<void> {
+/** timeout／crash：拿掉 agent-in-progress、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined） */
+export async function wrapUpCrash({ github, git }: Deps, n: number, reason: string): Promise<string | undefined> {
   const name = `agent-${n}`;
   const kept = (await git.listWorktrees()).find((w) => w.name === name);
   const where = kept
@@ -44,6 +44,7 @@ export async function wrapUpCrash({ github, git }: Deps, n: number, reason: stri
     n,
     [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, "", "不會自動重試；要重來就手動貼回 `ready-for-agent`。"].join("\n"),
   );
+  return kept?.path;
 }
 
 /** crash 留言承諾的「3 天後自動刪」 */

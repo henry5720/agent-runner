@@ -19,6 +19,7 @@ npm run typecheck
 | `src/config.ts` | 全部設定（目標 repo、挑單條件、路徑、git author、timeout…） |
 | `src/decide.ts` | 純函式 `decide(snapshot, now)`：這一輪要做哪些事 |
 | `src/runRound.ts` | 一輪的流程，邊界全部從 `deps` 注入 |
+| `src/notice.ts` | 每張單收尾的 Slack 訊息文字（結局 emoji、單名、PR、花多久、一句原因） |
 | `src/ports.ts` | `github`／`git`／`sandbox`／`notifier`／`clock` 的介面 |
 | `src/github.ts` `src/git.ts` `src/sandbox.ts` `src/notifier.ts` `src/clock.ts` | 真的實作（`gh`、bot clone、sandcastle＋docker、通知、時間） |
 | `src/image.ts` | image tag = hash(Dockerfile + 目標 repo 的 `.nvmrc`) |

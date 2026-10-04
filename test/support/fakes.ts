@@ -172,7 +172,7 @@ export class FakeSandbox implements Sandbox {
     images: string[] = [],
     private readonly dockerfileText = "FROM node\n",
     private readonly reviewResults: Record<number, ReviewResult | ScriptedFailure> = {},
-    private readonly host?: { git: FakeGit; clock: Clock; botClonePath: string },
+    private readonly host?: { git: FakeGit; clock: FakeClock; botClonePath: string; minutesPerRun?: number },
   ) {
     this.images = new Set(images);
   }
@@ -191,6 +191,7 @@ export class FakeSandbox implements Sandbox {
     // 跟真的 sandcastle 一樣：image 不存在就失敗，不會自己 build
     if (!this.images.has(req.imageTag)) throw new Error(`Image '${req.imageTag}' not found locally`);
     this.runs.push(req);
+    if (this.host?.minutesPerRun) this.host.clock.advance(this.host.minutesPerRun * 60_000);
     const result = this.results[req.issue.number];
     if (!result) throw new Error(`fake sandbox: no scripted result for #${req.issue.number}`);
     if ("throws" in result) {
@@ -225,6 +226,9 @@ export class FakeClock implements Clock {
   now() {
     return this.current;
   }
+  advance(ms: number) {
+    this.current = new Date(this.current.getTime() + ms);
+  }
 }
 
 export function fakeDeps(opts: {
@@ -235,6 +239,8 @@ export function fakeDeps(opts: {
   images?: string[];
   nvmrc?: string;
   now?: Date;
+  /** 每次實作 run 讓假時鐘前進幾分鐘（算 Slack 訊息裡的「花多久」） */
+  minutesPerRun?: number;
 }) {
   const nvmrcKey = `origin/${testConfig.baseBranch}:${testConfig.nvmrcPath}`;
   const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" });
@@ -242,7 +248,7 @@ export function fakeDeps(opts: {
   return {
     github: new FakeGitHub(opts.issues),
     git,
-    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath }),
+    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun }),
     notifier: new FakeNotifier(),
     clock,
   } satisfies Deps;
