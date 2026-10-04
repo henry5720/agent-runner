@@ -1,3 +1,5 @@
+import type { AutoOffSchedule } from "./autoOff.js";
+
 /** runner 看到的一張 issue（從 gh 輸出解析後的 domain 形狀）。 */
 export interface Issue {
   number: number;
@@ -19,6 +21,9 @@ export interface Issue {
 export interface Snapshot {
   operator: string;
   candidates: Issue[];
+  /** 自動關時間；距離它不到一個 timeout 就不接新單 */
+  autoOff: AutoOffSchedule;
+  timeoutMinutes: number;
   /** 一輪最多接幾張 */
   maxPerRound: number;
 }

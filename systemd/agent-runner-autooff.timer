@@ -1,0 +1,8 @@
+# 平日 08:00 Asia/Taipei 自動關（host 是 UTC → 00:00 UTC）。
+# 跟 src/config.ts 的 autoOff 一致；改一邊要改另一邊。
+[Unit]
+Description=agent-runner: switch off on weekdays at 08:00 Asia/Taipei
+
+[Timer]
+OnCalendar=Mon..Fri 08:00 Asia/Taipei
+Unit=agent-runner-autooff.service

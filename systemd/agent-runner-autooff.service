@@ -1,0 +1,7 @@
+# 自動關 = `agent-runner off`：停掉 timer，正在做的那張做完。
+[Unit]
+Description=agent-runner: switch off
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user stop agent-runner.timer

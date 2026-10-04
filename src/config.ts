@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { AutoOffSchedule } from "./autoOff.js";
 
 /**
  * runner 的全部設定都在這一個檔。第一階段的值見 spec #2692「第一階段設定值」。
@@ -27,6 +28,10 @@ export interface Config {
   gitAuthor: string;
   /** 每張單的上限（實作＋檢查＋review 全部算在內） */
   timeoutMinutes: number;
+  /** 自動關（systemd `agent-runner-autooff.timer` 的 OnCalendar 要跟這裡一致）；距離它不到一個 timeout 就不接新單 */
+  autoOff: AutoOffSchedule;
+  /** runner 狀態目錄：輪次鎖、目前在跑哪張（`agent-runner status` 讀） */
+  stateDir: string;
   /** sandbox 裡 claude 用的 model */
   model: string;
   /** image 名稱；tag 由 hash(Dockerfile + .nvmrc) 算 */
@@ -52,6 +57,8 @@ export const config: Config = {
   tddSkillPath: join(home, ".config/skillshare/skills/tdd"),
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
+  autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
+  stateDir: join(home, ".local/state/agent-runner"),
   model: "claude-opus-4-8",
   imageName: "sandcastle-teamsync",
   pnpmStorePath: join(home, "agents/pnpm-store"),
