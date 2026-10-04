@@ -2,7 +2,7 @@
  * runRound() 的系統邊界。一個操作一個 method（SDK 風格），測試用 test/support/fakes.ts 的 in-memory 版本。
  * 真的實作：github.ts（gh）、git.ts（bot clone）、sandbox.ts（sandcastle + docker）、notifier.ts、clock.ts。
  */
-import type { ImplementResult } from "./result.js";
+import type { ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 
 export interface NewPr {
@@ -73,6 +73,8 @@ export interface Sandbox {
    * 其他錯誤的 message 第一行要能直接當原因給人看（install 失敗要寫明）。
    */
   implement(req: ImplementRequest): Promise<ImplementResult>;
+  /** 實作之後另一次乾淨 context 的 reviewer run（同一條 branch、同一個 signal），可 commit 修正，最後重跑檢查 */
+  review(req: ImplementRequest): Promise<ReviewResult>;
 }
 
 export interface Notifier {

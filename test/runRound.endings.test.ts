@@ -73,6 +73,16 @@ describe("runRound — timeout", () => {
 
     expect(deps.github.issue(42).comments[1]).toMatch(/\/bot\/widgets\/\.sandcastle\/worktrees\/agent-42[\s\S]*3 天後自動刪/);
   });
+  it("wraps up the same way when the reviewer run is the one that times out", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() }, reviews: { 42: { throws: timeout() } } });
+
+    await runRound(testConfig, deps);
+
+    expect({ prs: deps.github.prs, issue: deps.github.issue(42) }).toMatchObject({
+      prs: [],
+      issue: { labels: [], comments: [expect.anything(), expect.stringContaining("60 分鐘")] },
+    });
+  });
 });
 
 describe("runRound — crash", () => {

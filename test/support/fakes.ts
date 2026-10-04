@@ -4,7 +4,7 @@
  */
 import type { Config } from "../../src/config.js";
 import type { Clock, Deps, Git, GitHub, ImplementRequest, NewPr, Notifier, Sandbox, Worktree } from "../../src/ports.js";
-import type { ImplementResult } from "../../src/result.js";
+import type { ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
 /** 建一張預設「操作者自己開、帶 ready-for-agent、沒 parent、沒 sub-issue」的 issue。 */
@@ -29,6 +29,19 @@ export function passResult(overrides: Partial<ImplementResult> = {}): ImplementR
     verification: [{ command: "pnpm test run src/demo", result: "3 passed" }],
     failedChecks: [],
     questions: [],
+    dependencies: [],
+    ...overrides,
+  };
+}
+
+/** reviewer run 的結果；預設「沒改東西、檢查全過」 */
+export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
+  return {
+    outcome: "pass",
+    summary: "",
+    verification: [],
+    failedChecks: [],
+    dependencies: [],
     ...overrides,
   };
 }
@@ -149,11 +162,13 @@ export class FakeSandbox implements Sandbox {
   readonly images: Set<string>;
   readonly builtImages: { tag: string; nodeVersion: string }[] = [];
   readonly runs: ImplementRequest[] = [];
+  readonly reviews: ImplementRequest[] = [];
 
   constructor(
     private readonly results: Record<number, ScriptedRun>,
     images: string[] = [],
     private readonly dockerfileText = "FROM node\n",
+    private readonly reviewResults: Record<number, ReviewResult | ScriptedFailure> = {},
     private readonly host?: { git: FakeGit; clock: Clock; botClonePath: string },
   ) {
     this.images = new Set(images);
@@ -184,6 +199,15 @@ export class FakeSandbox implements Sandbox {
     }
     return result;
   }
+  async review(req: ImplementRequest) {
+    if (!this.images.has(req.imageTag)) throw new Error(`Image '${req.imageTag}' not found locally`);
+    // 跟真的 sandcastle 一樣：共用的 signal 已經 abort 就立刻 reject
+    if (req.signal.aborted) throw req.signal.reason;
+    this.reviews.push(req);
+    const result = this.reviewResults[req.issue.number] ?? reviewResult();
+    if ("throws" in result) throw result.throws;
+    return result;
+  }
 }
 
 export class FakeNotifier implements Notifier {
@@ -203,6 +227,8 @@ export class FakeClock implements Clock {
 export function fakeDeps(opts: {
   issues: Issue[];
   results: Record<number, ScriptedRun>;
+  /** 沒給的單 reviewer 回「沒改東西、全過」 */
+  reviews?: Record<number, ReviewResult | ScriptedFailure>;
   images?: string[];
   nvmrc?: string;
   now?: Date;
@@ -213,7 +239,7 @@ export function fakeDeps(opts: {
   return {
     github: new FakeGitHub(opts.issues),
     git,
-    sandbox: new FakeSandbox(opts.results, opts.images, undefined, { git, clock, botClonePath: testConfig.botClonePath }),
+    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath }),
     notifier: new FakeNotifier(),
     clock,
   } satisfies Deps;
