@@ -3,7 +3,7 @@
  * 測試只看最終狀態（issue 的 label／留言、PR、branch、Slack 訊息），不看呼叫次數或順序。
  */
 import type { Config } from "../../src/config.js";
-import type { Clock, Deps, Git, GitHub, ImplementRequest, NewPr, Notifier, Sandbox } from "../../src/ports.js";
+import type { Clock, Deps, Git, GitHub, ImplementRequest, NewPr, Notifier, Sandbox, Worktree } from "../../src/ports.js";
 import type { ImplementResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
@@ -73,6 +73,9 @@ export class FakeGitHub implements GitHub {
   async listCandidates() {
     return [...this.issues.values()].map(({ comments: _c, ...i }) => ({ ...i, labels: [...i.labels], assignees: [...i.assignees] }));
   }
+  async listInProgress() {
+    return (await this.listCandidates()).filter((i) => i.labels.includes("agent-in-progress"));
+  }
   async createLabel(name: string) {
     if (!this.repoLabels.includes(name)) this.repoLabels.push(name);
   }
@@ -105,6 +108,8 @@ export class FakeGit implements Git {
   private fetched = false;
   readonly localBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
   readonly remoteBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
+  /** bot clone 的 `.sandcastle/worktrees/` 底下有的目錄 */
+  worktrees: Worktree[] = [];
 
   constructor(private readonly files: Record<string, string>) {}
 
@@ -124,7 +129,21 @@ export class FakeGit implements Git {
     if (!local) throw new Error(`fake git: no local branch ${branch}`);
     this.remoteBranches.set(branch, { ...local });
   }
+  async listWorktrees() {
+    return this.worktrees.map((w) => ({ ...w }));
+  }
+  async removeWorktree(path: string) {
+    this.worktrees = this.worktrees.filter((w) => w.path !== path);
+  }
 }
+
+/** sandbox run 失敗：丟出 `throws`（跟真的 sandcastle 一樣原樣丟出）；`leavesWorktree` = sandcastle 因為有未 commit 的變更而保留 worktree */
+export interface ScriptedFailure {
+  throws: unknown;
+  leavesWorktree?: boolean;
+}
+
+export type ScriptedRun = ImplementResult | ScriptedFailure;
 
 export class FakeSandbox implements Sandbox {
   readonly images: Set<string>;
@@ -132,9 +151,10 @@ export class FakeSandbox implements Sandbox {
   readonly runs: ImplementRequest[] = [];
 
   constructor(
-    private readonly results: Record<number, ImplementResult>,
+    private readonly results: Record<number, ScriptedRun>,
     images: string[] = [],
     private readonly dockerfileText = "FROM node\n",
+    private readonly host?: { git: FakeGit; clock: Clock; botClonePath: string },
   ) {
     this.images = new Set(images);
   }
@@ -155,6 +175,13 @@ export class FakeSandbox implements Sandbox {
     this.runs.push(req);
     const result = this.results[req.issue.number];
     if (!result) throw new Error(`fake sandbox: no scripted result for #${req.issue.number}`);
+    if ("throws" in result) {
+      if (result.leavesWorktree && this.host) {
+        const name = req.branch.replaceAll("/", "-");
+        this.host.git.worktrees.push({ name, path: `${this.host.botClonePath}/.sandcastle/worktrees/${name}`, modifiedAt: this.host.clock.now() });
+      }
+      throw result.throws;
+    }
     return result;
   }
 }
@@ -175,17 +202,19 @@ export class FakeClock implements Clock {
 
 export function fakeDeps(opts: {
   issues: Issue[];
-  results: Record<number, ImplementResult>;
+  results: Record<number, ScriptedRun>;
   images?: string[];
   nvmrc?: string;
   now?: Date;
 }) {
   const nvmrcKey = `origin/${testConfig.baseBranch}:${testConfig.nvmrcPath}`;
+  const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" });
+  const clock = new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z"));
   return {
     github: new FakeGitHub(opts.issues),
-    git: new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" }),
-    sandbox: new FakeSandbox(opts.results, opts.images),
+    git,
+    sandbox: new FakeSandbox(opts.results, opts.images, undefined, { git, clock, botClonePath: testConfig.botClonePath }),
     notifier: new FakeNotifier(),
-    clock: new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z")),
+    clock,
   } satisfies Deps;
 }

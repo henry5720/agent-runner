@@ -79,6 +79,18 @@ describe("github adapter against recorded gh output", () => {
     );
   });
 
+  it("lists every open agent-in-progress issue in the configured repo, whoever opened it", async () => {
+    const { github, calls } = withFakeGh([{ match: ["issue", "list"], stdout: "[]" }]);
+
+    await github.listInProgress();
+
+    const argv = calls()[0]?.argv ?? [];
+    expect({
+      flags: ["-R", "acme/widgets", "--label", "agent-in-progress", "--state", "open"].every((f) => argv.includes(f)),
+      readyLabel: argv.includes("ready-for-agent"),
+    }).toEqual({ flags: true, readyLabel: false });
+  });
+
   it("returns the PR number from the URL `gh pr create` prints", async () => {
     const { github } = withFakeGh([{ match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/2708\n" }]);
 
