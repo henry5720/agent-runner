@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
 
 describe("runRound — Slack notice per issue", () => {
   it("all checks pass: emoji, linked title, PR link, duration, no reason", async () => {
@@ -58,7 +58,7 @@ describe("runRound — Slack notice per issue", () => {
     const deps = fakeDeps({ issues: [issue({ number: 42, title: "匯出按鈕" })], results: { 42: passResult() } });
     await runRound(testConfig, deps);
     deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.notifier.messages.length = 0;
 
     await runRound(testConfig, deps);

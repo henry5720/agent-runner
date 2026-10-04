@@ -43,6 +43,10 @@ agent-runner clean-worktrees [--all] # 刪超過 3 天的 sandcastle worktree；
 重接時 `agent/<N>` 上有不是 runner 做的 commit：不碰 branch 和 PR，留言請人決定、發一則 Slack（✋），
 並拿掉 `ready-for-agent`，不然每一輪都會再問一次。要 runner 重做就照留言刪掉遠端 branch 再貼回。
 
+issue 的 assignee：全過的單留著操作者（issue 等 PR 用 `Closes #N` merge 才關，這段期間有人在跟）；
+`[WIP]`、needs-info、timeout／crash 收尾時拿掉。挑單條件有 `no:assignee`，所以要 runner 重做一張全過的單，
+先拿掉 assignee 再貼回 `ready-for-agent`。
+
 runner 自己失敗（`agent-runner.service` 的 `OnFailure=`）→ `agent-runner-failure.service` 發 Slack 附 `journalctl` 最後 20 行，
 同一原因一晚（到下一次 08:00 Asia/Taipei）只發一次，記錄在 `~/.local/state/agent-runner/failure-notified.json`。
 

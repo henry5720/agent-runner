@@ -7,12 +7,19 @@ import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, worktreeName } from "
 import type { ImplementResult } from "./result.js";
 
 /**
- * 每種結局的收尾：拿掉 agent-in-progress 和接單時 assign 的操作者（PR 的 assignee 留著）。
- * 挑單條件有 `no:assignee`，不拿掉的話人貼回 ready-for-agent 也接不到。
+ * 每種結局的收尾：拿掉 agent-in-progress。
+ * 全過（`keepAssignee`）的 issue 還在等 PR 用 `Closes #N` merge 關掉，操作者留著＝有人在跟；
+ * 其他結局拿掉接單時 assign 的操作者（PR 的 assignee 留著）—— 挑單條件有 `no:assignee`，
+ * 不拿掉的話人貼回 ready-for-agent 也接不到。
  */
-export async function releaseIssue({ github }: Pick<Deps, "github">, operator: string, n: number): Promise<void> {
+export async function releaseIssue(
+  { github }: Pick<Deps, "github">,
+  operator: string,
+  n: number,
+  { keepAssignee = false }: { keepAssignee?: boolean } = {},
+): Promise<void> {
   await github.removeLabel(n, IN_PROGRESS_LABEL);
-  await github.unassign(n, operator);
+  if (!keepAssignee) await github.unassign(n, operator);
 }
 
 export async function wrapUpNeedsInfo(deps: Deps, operator: string, n: number, result: ImplementResult): Promise<void> {

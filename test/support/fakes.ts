@@ -341,3 +341,10 @@ export function fakeDeps(opts: {
     stopSignal: new AbortController().signal,
   } satisfies Deps;
 }
+
+/** 人要 runner 重做：拿掉 issue 上的 assignee（全過的單會留著操作者），再貼回 ready-for-agent。 */
+export function humanRequeues(deps: ReturnType<typeof fakeDeps>, n: number): void {
+  const target = deps.github.issue(n);
+  target.assignees = [];
+  target.labels.push("ready-for-agent");
+}

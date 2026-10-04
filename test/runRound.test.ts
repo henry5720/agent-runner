@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
 import type { ImplementResult } from "../src/result.js";
 import type { Issue } from "../src/types.js";
 
@@ -22,14 +22,14 @@ describe("runRound — happy path", () => {
     ]);
   });
 
-  it("leaves the issue with no runner labels, no assignee, and a pickup comment", async () => {
+  it("leaves the issue with no runner labels, the operator still assigned, and a pickup comment", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
 
     await runRound(testConfig, deps);
 
     expect(deps.github.issue(42)).toMatchObject({
       labels: [],
-      assignees: [],
+      assignees: [testConfig.operator],
       comments: [expect.stringContaining("已接單")],
     });
   });
@@ -236,8 +236,22 @@ describe("runRound — pick filters", () => {
 });
 
 describe("runRound — re-pickup", () => {
+  it("keeps the operator assigned after a pass ending, so the issue is not re-picked until a human unassigns it", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() }, reviews: { 42: reviewResult() } });
+    await runRound(testConfig, deps);
+    expect(deps.github.issue(42).assignees).toEqual([testConfig.operator]);
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    await runRound(testConfig, deps);
+    expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42]);
+
+    deps.github.issue(42).assignees = [];
+    deps.sandbox.script(42, passResult());
+    await runRound(testConfig, deps);
+    expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42, 42]);
+  });
+
   it.each([
-    { ending: "pass", first: passResult(), review: reviewResult() },
     { ending: "[WIP]", first: passResult(), review: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
     { ending: "needs-info", first: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }), review: reviewResult() },
     { ending: "crash", first: { throws: new Error("pnpm install failed") }, review: reviewResult() },
@@ -246,7 +260,7 @@ describe("runRound — re-pickup", () => {
     await runRound(testConfig, deps);
     expect(deps.github.issue(42).assignees).toEqual([]);
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.sandbox.script(42, passResult());
     await runRound(testConfig, deps);
 
@@ -257,7 +271,7 @@ describe("runRound — re-pickup", () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }) } });
     await runRound(testConfig, deps);
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.sandbox.script(42, passResult());
     await runRound(testConfig, deps);
 
@@ -272,7 +286,7 @@ describe("runRound — re-pickup", () => {
     });
     await runRound(testConfig, deps);
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.sandbox.script(42, passResult({ prTitle: "feat(x): add y properly", summary: "第二次做" }), reviewResult());
     await runRound(testConfig, deps);
 
@@ -287,7 +301,7 @@ describe("runRound — re-pickup", () => {
     const pr = deps.github.prs[0]!;
     pr.draft = false;
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     await runRound(testConfig, deps);
 
     expect({ draft: pr.draft, ciRuns: deps.github.ciRuns }).toEqual({ draft: true, ciRuns: [] });
@@ -299,7 +313,7 @@ describe("runRound — re-pickup", () => {
     deps.git.worktrees.push({ name: "agent-42", path: "/bot/widgets/.sandcastle/worktrees/agent-42", modifiedAt: deps.clock.now() });
     deps.git.localBranches.set("agent/42", { base: "half-done", fetchedFirst: true });
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     await runRound(testConfig, deps);
 
     expect({ runs: deps.sandbox.runs.length, worktrees: deps.git.worktrees, remote: deps.git.remoteBranches.get("agent/42")?.base }).toEqual({
@@ -315,7 +329,7 @@ describe("runRound — re-pickup", () => {
     deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
     const remoteBefore = deps.git.remoteBranches.get("agent/42");
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.sandbox.script(42, passResult({ prTitle: "feat(x): second" }));
     await runRound(testConfig, deps);
 

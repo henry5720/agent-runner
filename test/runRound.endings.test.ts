@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, issue, passResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, testConfig } from "./support/fakes.js";
 
 const needsInfo = (questions: string[]) =>
   passResult({ outcome: "needs-info", prTitle: "", summary: "", verification: [], questions });
@@ -139,7 +139,7 @@ describe("runRound — done but nothing committed", () => {
     await runRound(testConfig, deps);
     const remoteBefore = deps.git.remoteBranches.get("agent/42");
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    humanRequeues(deps, 42);
     deps.sandbox.script(42, passResult({ prTitle: "feat(x): second" }));
     deps.sandbox.commitless.add(42);
     await runRound(testConfig, deps);
