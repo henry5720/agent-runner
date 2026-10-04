@@ -30,8 +30,11 @@ function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: stri
 }
 
 describe("github adapter against recorded gh output", () => {
-  it("parses `gh issue list --json` into issues with author, labels, parent and sub-issue count", async () => {
-    const { github } = withFakeGh([{ match: ["issue", "list"], stdout: fixture("issue-list-with-parent.trimmed.json") }]);
+  it("parses `gh issue list --json` into issues with author, labels, parent (and its labels) and sub-issue count", async () => {
+    const { github } = withFakeGh([
+      { match: ["issue", "list"], stdout: fixture("issue-list-with-parent.trimmed.json") },
+      { match: ["issue", "view", "2283"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
+    ]);
 
     const issues = await github.listCandidates();
 
@@ -44,6 +47,7 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: null,
+        parentLabels: [],
         subIssueCount: 12,
       },
       {
@@ -54,6 +58,7 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: 2283,
+        parentLabels: ["wayfinder:map"],
         subIssueCount: 6,
       },
       {
@@ -64,9 +69,29 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: null,
+        parentLabels: [],
         subIssueCount: 0,
       },
     ]);
+  });
+
+  it("looks up each distinct parent's labels once, in the configured repo", async () => {
+    const list = JSON.stringify([
+      { number: 11, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 } },
+      { number: 12, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 } },
+    ]);
+    const { github, calls } = withFakeGh([
+      { match: ["issue", "list"], stdout: list },
+      { match: ["issue", "view", "5"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
+    ]);
+
+    const issues = await github.listCandidates();
+
+    const views = calls().filter((c) => c.argv[1] === "view");
+    expect({ views: views.map((c) => c.argv), labels: issues.map((i) => i.parentLabels) }).toEqual({
+      views: [["issue", "view", "5", "-R", "acme/widgets", "--json", "labels"]],
+      labels: [["wayfinder:map"], ["wayfinder:map"]],
+    });
   });
 
   it("lists only the operator's open ready-for-agent issues in the configured repo with the configured search", async () => {

@@ -8,6 +8,8 @@ export interface Issue {
   assignees: string[];
   /** 沒有 parent → null */
   parentNumber: number | null;
+  /** parent 的 labels；沒有 parent → [] */
+  parentLabels: string[];
   subIssueCount: number;
 }
 
@@ -15,6 +17,8 @@ export interface Issue {
 export interface Snapshot {
   operator: string;
   candidates: Issue[];
+  /** 一輪最多接幾張 */
+  maxPerRound: number;
 }
 
 /** decide() 產出的動作。後面的票往這個 union 加種類。 */

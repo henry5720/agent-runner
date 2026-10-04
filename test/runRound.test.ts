@@ -108,3 +108,19 @@ describe("runRound — sandbox image", () => {
     expect(deps.sandbox.builtImages).toEqual([]);
   });
 });
+
+describe("runRound — pick filters", () => {
+  it("works through at most maxPerRound issues per round, lowest number first, leaving the rest ready", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 30 }), issue({ number: 7 }), issue({ number: 12 })],
+      results: { 7: passResult(), 12: passResult(), 30: passResult() },
+    });
+
+    await runRound({ ...testConfig, maxPerRound: 2 }, deps);
+
+    expect({ prs: deps.github.prs.map((p) => p.head), left: deps.github.issue(30).labels }).toEqual({
+      prs: ["agent/7", "agent/12"],
+      left: ["ready-for-agent"],
+    });
+  });
+});

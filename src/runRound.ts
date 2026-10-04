@@ -10,7 +10,7 @@ const READY_LABEL = "ready-for-agent";
 
 /**
  * 一輪：fetch → 確認 image → 列候選 → decide() → 一次一張處理。
- * 這張票只有全過的 happy path；檢查、reviewer、失敗收尾、Slack、flock、上限在後面的票加。
+ * 這張票只有全過的 happy path；檢查、reviewer、失敗收尾、Slack、flock 在後面的票加。
  */
 export async function runRound(config: Config, deps: Deps): Promise<void> {
   const { github, git, sandbox, clock } = deps;
@@ -20,7 +20,7 @@ export async function runRound(config: Config, deps: Deps): Promise<void> {
   const tag = await ensureImage(config, deps, baseRef);
 
   const candidates = await github.listCandidates();
-  const actions = decide({ operator: config.operator, candidates }, clock.now());
+  const actions = decide({ operator: config.operator, candidates, maxPerRound: config.maxPerRound }, clock.now());
 
   for (const action of actions) {
     switch (action.kind) {

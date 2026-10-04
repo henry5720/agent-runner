@@ -16,6 +16,7 @@ export function issue(overrides: Partial<Issue> & { number: number }): Issue {
     labels: ["ready-for-agent"],
     assignees: [],
     parentNumber: null,
+    parentLabels: [],
     subIssueCount: 0,
     ...overrides,
   };
@@ -37,6 +38,7 @@ export const testConfig: Config = {
   repo: "acme/widgets",
   operator: "henry5720",
   pickSearch: "-is:blocked no:assignee",
+  maxPerRound: 2,
   baseBranch: "dev",
   botClonePath: "/bot/widgets",
   nvmrcPath: "frontend/.nvmrc",

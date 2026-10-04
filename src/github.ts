@@ -22,7 +22,8 @@ interface GhIssue {
 
 const ISSUE_FIELDS = "number,title,body,labels,assignees,author,parent,subIssuesSummary";
 
-export function parseIssues(json: string): Issue[] {
+/** parent 的 labels 不在 list 輸出裡，listCandidates() 另外查 */
+export function parseIssues(json: string): Omit<Issue, "parentLabels">[] {
   return (JSON.parse(json) as GhIssue[]).map((i) => ({
     number: i.number,
     title: i.title,
@@ -49,6 +50,11 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
     }
   }
 
+  async function labelsOf(issue: number): Promise<string[]> {
+    const stdout = await gh(["issue", "view", String(issue), "-R", repo, "--json", "labels"]);
+    return (JSON.parse(stdout) as { labels: { name: string }[] }).labels.map((l) => l.name);
+  }
+
   /** body 有反引號、多行，一律走 --body-file */
   async function withBodyFile<T>(body: string, fn: (path: string) => Promise<T>): Promise<T> {
     const dir = await mkdtemp(join(tmpdir(), "agent-runner-"));
@@ -69,7 +75,11 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
         "--author", "@me", "--label", "ready-for-agent", "--state", "open",
         "--search", pickSearch, "--limit", "200", "--json", ISSUE_FIELDS,
       ]);
-      return parseIssues(stdout);
+      const issues = parseIssues(stdout);
+      // decide() 要知道 parent 是不是 wayfinder:map；同一個 parent 只查一次
+      const parents = [...new Set(issues.flatMap((i) => (i.parentNumber === null ? [] : [i.parentNumber])))];
+      const parentLabels = new Map(await Promise.all(parents.map(async (n) => [n, await labelsOf(n)] as const)));
+      return issues.map((i) => ({ ...i, parentLabels: i.parentNumber === null ? [] : (parentLabels.get(i.parentNumber) ?? []) }));
     },
     async createLabel(name, { color, description }) {
       await gh(["label", "create", name, "-R", repo, "--color", color, "--description", description, "--force"]);
