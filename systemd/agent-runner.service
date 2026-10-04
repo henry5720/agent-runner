@@ -1,7 +1,8 @@
 # 跑一輪（挑單 → sandbox → draft PR）。由 agent-runner.timer 叫，不要 enable。
-# 失敗通知（OnFailure=agent-runner-failure.service）在 #2703 加。
 [Unit]
 Description=agent-runner: one round
+# 失敗（含 TimeoutStartSec 到、off --now 等不到 TimeoutStopSec 被硬殺）→ 發 Slack，同一原因一晚一次
+OnFailure=agent-runner-failure.service
 
 [Service]
 Type=oneshot

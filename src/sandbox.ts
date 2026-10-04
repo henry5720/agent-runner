@@ -85,13 +85,13 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       }
     },
 
-    async buildImage({ tag, nodeVersion }) {
+    async buildImage({ tag, nodeVersion, fresh }) {
       // sandcastle 的 buildImage 沒 export、CLI 帶不了 NODE_VERSION → 自己跑 docker build
       const uid = String(process.getuid?.() ?? 1000);
       const gid = String(process.getgid?.() ?? 1000);
       await exec(
         "docker",
-        ["build", "-t", tag, "--build-arg", `NODE_VERSION=${nodeVersion}`, "--build-arg", `AGENT_UID=${uid}`, "--build-arg", `AGENT_GID=${gid}`, "-f", DOCKERFILE, RUNNER_ROOT],
+        ["build", ...(fresh ? ["--no-cache", "--pull"] : []), "-t", tag, "--build-arg", `NODE_VERSION=${nodeVersion}`, "--build-arg", `AGENT_UID=${uid}`, "--build-arg", `AGENT_GID=${gid}`, "-f", DOCKERFILE, RUNNER_ROOT],
         { maxBuffer: 256 * 1024 * 1024 },
       );
     },

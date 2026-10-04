@@ -50,7 +50,7 @@ export async function wrapUpCrash({ github, git }: Deps, n: number, reason: stri
 /** crash 留言承諾的「3 天後自動刪」 */
 export const WORKTREE_RETENTION_MS = 3 * 24 * 60 * 60_000;
 
-export async function removeOldWorktrees({ git, clock }: Deps): Promise<void> {
+export async function removeOldWorktrees({ git, clock }: Pick<Deps, "git" | "clock">): Promise<void> {
   const cutoff = clock.now().getTime() - WORKTREE_RETENTION_MS;
   for (const w of await git.listWorktrees()) {
     if (w.modifiedAt.getTime() < cutoff) await git.removeWorktree(w.path);

@@ -1,6 +1,6 @@
 import type { Config } from "./config.js";
 import { decide } from "./decide.js";
-import { imageTag } from "./image.js";
+import { wantedImage } from "./image.js";
 import { failureReason, IN_PROGRESS_LABEL, removeOldWorktrees, wrapUpCrash, wrapUpNeedsInfo } from "./endings.js";
 import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle } from "./prBody.js";
@@ -79,10 +79,9 @@ async function notify(config: Config, { notifier }: Deps, input: { issue: { numb
   }
 }
 
-async function ensureImage(config: Config, { git, sandbox }: Deps, baseRef: string): Promise<string> {
-  const nvmrc = await git.showFile(baseRef, config.nvmrcPath);
-  const tag = imageTag(config.imageName, await sandbox.dockerfile(), nvmrc);
-  if (!(await sandbox.imageExists(tag))) await sandbox.buildImage({ tag, nodeVersion: nvmrc.trim() });
+async function ensureImage(config: Config, deps: Deps, baseRef: string): Promise<string> {
+  const { tag, nodeVersion } = await wantedImage(config, deps, baseRef);
+  if (!(await deps.sandbox.imageExists(tag))) await deps.sandbox.buildImage({ tag, nodeVersion });
   return tag;
 }
 

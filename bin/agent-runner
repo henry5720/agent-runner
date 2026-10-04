@@ -17,6 +17,13 @@ usage: agent-runner <command>
   off          關掉：正在做的那張做完，不再接新單
   off --now    立刻停：中斷正在做的那張、照 crash 收尾（最多等 5 分鐘）
   status       開關、下次觸發、目前在跑哪張、runner commit
+
+  update                  更新 runner：git pull --ff-only + npm ci（runner 只透過這個更新）
+  rebuild                 同一個 tag 不用 cache 重 build sandbox image（更新 Claude CLI）
+  clean-store             清空 runner 自己的 pnpm store
+  clean-worktrees [--all] 刪 bot clone 裡超過 3 天的 sandcastle worktree；--all 全刪
+
+  維護指令要跟一輪搶同一把鎖：有一輪在跑就不動手。
 USAGE
 }
 
@@ -72,22 +79,72 @@ cmd_status() {
   echo "runner：    $(git -C "$RUNNER_DIR" rev-parse --short HEAD)"
 }
 
-# systemd 叫的那一輪。user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿。
-# exec node（不經 npm）：node 要是 service 的 main process，off --now 的 KillSignal 才會直接送到它。
-cmd_round() {
+# user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿
+load_node() {
   if ! command -v node >/dev/null; then
     # shellcheck source=/dev/null
     . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
   fi
   cd "$RUNNER_DIR"
+}
+
+# systemd 叫的那一輪。
+# exec node（不經 npm）：node 要是 service 的 main process，off --now 的 KillSignal 才會直接送到它。
+cmd_round() {
+  load_node
   exec node --import tsx src/main.ts
+}
+
+# 維護指令跟一輪拿同一把鎖（src/lock.ts 的 round.lock）：拿不到就不動手，不等。
+# fd 9 一路帶到 exec 出去的 node，指令跑完才放掉。
+with_round_lock() {
+  mkdir -p "$STATE_DIR"
+  exec 9>>"$STATE_DIR/round.lock"
+  if ! flock -n 9; then
+    echo "agent-runner: 有一輪正在跑，等它做完（或 agent-runner off --now）再來" >&2
+    exit 1
+  fi
+}
+
+cmd_update() {
+  with_round_lock
+  git -C "$RUNNER_DIR" pull --ff-only
+  (cd "$RUNNER_DIR" && npm ci)
+  # units 是連到 repo 的 symlink，內容變了要 reload 才生效；新增的 unit 要重跑 install.sh
+  user_ctl daemon-reload
+  echo "update：runner 在 $(git -C "$RUNNER_DIR" rev-parse --short HEAD)"
+}
+
+# rebuild／clean-store／clean-worktrees 要讀設定、碰 docker 或 bot clone，在 src/cli.ts
+cmd_maintain() {
+  with_round_lock
+  load_node
+  exec node --import tsx src/cli.ts "$@"
+}
+
+# agent-runner-failure.service（OnFailure=）叫的；不拿鎖，失敗那一輪已經結束了
+cmd_notify_failure() {
+  load_node
+  exec node --import tsx src/cli.ts notify-failure
 }
 
 case "${1:-}" in
   on) cmd_on ;;
   off) shift; cmd_off "$@" ;;
   status) cmd_status ;;
+  update) cmd_update ;;
+  rebuild | clean-store) cmd_maintain "$1" ;;
+  clean-worktrees)
+    case "${2:-}" in
+      "" | --all) cmd_maintain "$@" ;;
+      *)
+        usage >&2
+        exit 2
+        ;;
+    esac
+    ;;
   round) cmd_round ;;
+  notify-failure) cmd_notify_failure ;;
   -h | --help | help) usage ;;
   *)
     usage >&2

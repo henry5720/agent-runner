@@ -165,7 +165,7 @@ export type ScriptedRun = ImplementResult | ScriptedFailure;
 
 export class FakeSandbox implements Sandbox {
   readonly images: Set<string>;
-  readonly builtImages: { tag: string; nodeVersion: string }[] = [];
+  readonly builtImages: { tag: string; nodeVersion: string; fresh?: boolean }[] = [];
   readonly runs: ImplementRequest[] = [];
   readonly reviews: ImplementRequest[] = [];
 
@@ -185,7 +185,7 @@ export class FakeSandbox implements Sandbox {
   async imageExists(tag: string) {
     return this.images.has(tag);
   }
-  async buildImage(opts: { tag: string; nodeVersion: string }) {
+  async buildImage(opts: { tag: string; nodeVersion: string; fresh?: boolean }) {
     this.builtImages.push(opts);
     this.images.add(opts.tag);
   }

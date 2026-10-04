@@ -66,7 +66,8 @@ export interface Sandbox {
   /** runner 的 Dockerfile 內容（算 image tag 用） */
   dockerfile(): Promise<string>;
   imageExists(tag: string): Promise<boolean>;
-  buildImage(opts: { tag: string; nodeVersion: string }): Promise<void>;
+  /** `fresh`：不用 build cache（`agent-runner rebuild`） */
+  buildImage(opts: { tag: string; nodeVersion: string; fresh?: boolean }): Promise<void>;
   /**
    * 一次實作 run，回傳 agent 的結構化結果。
    * 失敗就 throw：timeout 時丟的是 `signal.reason`（`name === "TimeoutError"`）；

@@ -12,14 +12,33 @@ npm test            # unit test（不連網）
 npm run typecheck
 ```
 
-開關（systemd user units；連結 units 與 CLI 由 `install.sh` 負責，ShuChenAI/teamsync-frontend#2703）：
+裝在 company-ec2（可重複跑；不 build image、不打開開關）：
+
+```bash
+git clone <runner repo> ~/agents/agent-runner && ~/agents/agent-runner/install.sh
+```
+
+`install.sh`：`npm ci` → 沒有 bot clone 就 clone，設 `.sandcastle/` exclude 與 `user.name` → `mkdir -p` pnpm store →
+檢查 `~/.config/agent-runner/env` 存在且 600（不符合就印出要放的變數並停下）→ 連結 `systemd/` 到 `~/.config/systemd/user/` →
+`daemon-reload` → `loginctl enable-linger` → `agent-runner` 連到 `~/.local/bin`。
+
+開關（systemd user units）：
 
 ```bash
 agent-runner on          # 立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
 agent-runner off         # 正在做的那張做完就停
 agent-runner off --now   # 立刻停，正在做的那張照 crash 收尾
 agent-runner status      # 開關、下次觸發、目前在跑哪張、runner commit
+
+# 維護（有一輪在跑就不動手）
+agent-runner update                  # git pull --ff-only + npm ci；runner 只透過這個更新
+agent-runner rebuild                 # 同一個 tag 不用 cache 重 build image（更新 Claude CLI）
+agent-runner clean-store             # 清空 runner 自己的 pnpm store
+agent-runner clean-worktrees [--all] # 刪超過 3 天的 sandcastle worktree；--all 全刪
 ```
+
+runner 自己失敗（`agent-runner.service` 的 `OnFailure=`）→ `agent-runner-failure.service` 發 Slack 附 `journalctl` 最後 20 行，
+同一原因一晚（到下一次 08:00 Asia/Taipei）只發一次，記錄在 `~/.local/state/agent-runner/failure-notified.json`。
 
 ## 結構
 
@@ -34,7 +53,11 @@ agent-runner status      # 開關、下次觸發、目前在跑哪張、runner c
 | `src/autoOff.ts` | 下一次自動關的時間（`decide` 用它判斷「剩不到一個 timeout 就不接」） |
 | `src/lock.ts` `src/runState.ts` `src/power.ts` | `flock -n` 輪次鎖、`~/.local/state/agent-runner/current`（給 `status`）、開關＝`agent-runner.timer` 有沒有在跑 |
 | `bin/agent-runner` | CLI（bash 薄殼，`systemctl --user`） |
-| `systemd/` | `agent-runner.service`／`.timer`、`agent-runner-autooff.timer`／`.service` |
+| `src/cli.ts` | CLI 裡要讀設定或碰 adapter 的子指令（`rebuild`、`clean-*`、`notify-failure`、給 `install.sh` 的設定值） |
+| `src/maintenance.ts` | `rebuild`、`clean-worktrees` |
+| `src/failure.ts` | runner 自己失敗的 Slack 通知，同一原因一晚一次 |
+| `install.sh` | 安裝／修環境（可重複跑） |
+| `systemd/` | `agent-runner.service`／`.timer`、`agent-runner-autooff.timer`／`.service`、`agent-runner-failure.service` |
 | `src/image.ts` | image tag = hash(Dockerfile + 目標 repo 的 `.nvmrc`) |
 | `src/endings.ts` | 沒開成 PR 的結局：`needs-info`、timeout／crash 留言、殘留 `agent-in-progress`、刪超過 3 天的 worktree |
 | `src/prBody.ts` `src/result.ts` | PR body、agent 回報的結構化結果 schema |
