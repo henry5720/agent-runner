@@ -27,6 +27,9 @@ export function createGit(opts: { repoPath: string }): Git {
       const names = (await git(["log", "--format=%an", `${baseRef}..${remote}`])).split("\n").filter(Boolean);
       return [...new Set(names)];
     },
+    async hasCommits(branch, baseRef) {
+      return Number((await git(["rev-list", "--count", `${baseRef}..${branch}`])).trim()) > 0;
+    },
     async resetBranch(branch, startPoint) {
       await git(["branch", "-f", "--no-track", branch, startPoint]);
     },

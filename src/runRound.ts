@@ -1,17 +1,17 @@
 import type { Config } from "./config.js";
 import { decide } from "./decide.js";
 import { wantedImage } from "./image.js";
-import { failureReason, IN_PROGRESS_LABEL, releaseIssue, removeOldWorktrees, wrapUpCrash, wrapUpNeedsInfo } from "./endings.js";
+import { failureReason, releaseIssue, removeOldWorktrees, wrapUpCrash, wrapUpNeedsInfo } from "./endings.js";
+import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, READY_LABEL, worktreeName } from "./names.js";
 import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle } from "./prBody.js";
 import type { Deps } from "./ports.js";
 import type { Issue } from "./types.js";
 
-const READY_LABEL = "ready-for-agent";
-
 /**
- * 一輪：拿鎖（拿不到就結束）→ fetch → 刪超過 3 天的 worktree → 確認 image → 殘留 agent-in-progress 照 crash 收尾 → 列候選 → decide()（含 maxPerRound 上限、自動關前不接）→ 一次一張處理。
- * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash 見 endings.ts。每張單收尾後發一則 Slack（notice.ts）。
+ * 一輪：拿鎖（拿不到就結束）→ fetch → 刪超過 3 天的 worktree → 確認 image → 列殘留 agent-in-progress 與候選 → decide() → 照動作一個一個做。
+ * decide() 決定做什麼（殘留照 crash 收尾、問人、接單，含 maxPerRound 上限、自動關前不接）；這裡只負責做。
+ * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash（含做完卻沒 commit）見 endings.ts。每張單收尾後發一則 Slack（notice.ts）。
  * 重接（#2700）：沿用 agent/<N> 與開著的 PR；branch 上有人手做的 commit 就停手問人。
  * 每種結局都要拿掉接單時 assign 的操作者（endings.ts releaseIssue），不然人貼回 ready-for-agent 也接不到。
  */
@@ -33,34 +33,40 @@ async function runLockedRound(config: Config, deps: Deps): Promise<void> {
   await removeOldWorktrees(deps);
   const tag = await ensureImage(config, deps, baseRef);
 
-  // flock 保證同時只有一輪，所以這時還帶 agent-in-progress 的都是被硬殺的殘留；不重跑，照 crash 收尾
-  for (const stale of await github.listInProgress()) {
-    const reason = "上一輪 runner 被中斷（硬殺或關機），沒有收尾";
-    const worktreePath = await wrapUpCrash(deps, config.operator, stale.number, reason);
-    await notify(config, deps, { issue: stale, ending: { kind: "crash", reason, worktreePath } });
-  }
-
+  const inProgress = await github.listInProgress();
   const candidates = await github.listCandidates();
   const snapshot = {
     operator: config.operator,
     candidates,
+    inProgress,
     maxPerRound: config.maxPerRound,
     autoOff: config.autoOff,
     timeoutMinutes: config.timeoutMinutes,
     runnerAuthor: config.gitAuthor,
     branchAuthors: Object.fromEntries(
-      await Promise.all(candidates.map(async (i) => [i.number, await git.branchAuthors(`agent/${i.number}`, baseRef)] as const)),
+      await Promise.all(candidates.map(async (i) => [i.number, await git.branchAuthors(agentBranch(i.number), baseRef)] as const)),
     ),
   };
   const actions = decide(snapshot, clock.now());
 
   for (const action of actions) {
     switch (action.kind) {
+      case "wrap-up-leftover": {
+        const reason = "上一輪 runner 被中斷（硬殺或關機），沒有收尾";
+        const worktreePath = await wrapUpCrash(deps, config.operator, action.issue.number, reason);
+        await notify(config, deps, { issue: action.issue, ending: { kind: "crash", reason, worktreePath } });
+        break;
+      }
+      case "ask-about-foreign-commits": {
+        const reason = await askAboutForeignCommits(config, github, action.issue.number, action.authors);
+        await notify(config, deps, { issue: action.issue, ending: { kind: "stopped", reason } });
+        break;
+      }
       case "pickup": {
         // 關掉（手動 off 或 08:00 自動關）之後不接新單；正在做的那張已經做完了
         if (deps.stopSignal.aborted || !(await deps.power.isOn())) return;
         // 前一張做完時間已經過了，再問一次 decide（例如已經進入自動關前的最後一個 timeout）
-        if (!decide({ ...snapshot, candidates: [action.issue] }, clock.now()).length) return;
+        if (!decide({ ...snapshot, candidates: [action.issue], inProgress: [] }, clock.now()).some((a) => a.kind === "pickup")) return;
         await deps.runState.setCurrent({ number: action.issue.number, title: action.issue.title });
         const startedAt = clock.now().getTime();
         let ending;
@@ -72,9 +78,6 @@ async function runLockedRound(config: Config, deps: Deps): Promise<void> {
         await notify(config, deps, { issue: action.issue, durationMs: clock.now().getTime() - startedAt, ending });
         break;
       }
-      case "ask-about-foreign-commits":
-        await askAboutForeignCommits(github, action.issue.number, action.authors);
-        break;
     }
   }
 }
@@ -97,17 +100,18 @@ async function ensureImage(config: Config, deps: Deps, baseRef: string): Promise
 async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag: string; baseRef: string }): Promise<Ending> {
   const { github, git, sandbox } = deps;
   const n = issue.number;
-  const branch = `agent/${n}`;
+  const branch = agentBranch(n);
 
-  // 接單
+  // 接單。重接 needs-info 的單是從頭來過（label 狀態機），needs-info 一起拿掉
   await github.createLabel(IN_PROGRESS_LABEL, { color: "fbca04", description: "sandcastle runner 正在做這張單" });
   await github.removeLabel(n, READY_LABEL);
+  if (issue.labels.includes(NEEDS_INFO_LABEL)) await github.removeLabel(n, NEEDS_INFO_LABEL);
   await github.addLabel(n, IN_PROGRESS_LABEL);
   await github.assign(n, config.operator);
   await github.comment(n, `🤖 已接單：runner 開始在 sandbox 裡實作，分支 \`${branch}\`。`);
 
-  // 實作（整張單共用一個 timeout）。重接時舊的 worktree 會被 sandcastle 重用，先刪掉再從 origin/dev 重來
-  const leftover = (await git.listWorktrees()).find((w) => w.name === branch.replace(/\//g, "-"));
+  // 實作（整張單共用一個 timeout）。重接時舊的 worktree 會被 sandcastle 重用，先刪掉再從 base 重來
+  const leftover = (await git.listWorktrees()).find((w) => w.name === worktreeName(branch));
   if (leftover) await git.removeWorktree(leftover.path);
   await git.resetBranch(branch, ctx.baseRef);
   const timeout = AbortSignal.timeout(config.timeoutMinutes * 60_000);
@@ -125,6 +129,12 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
     review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
   } catch (err) {
     const reason = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, timeout, config.timeoutMinutes);
+    return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, config.operator, n, reason) };
+  }
+
+  // agent 說做完但 branch 上什麼都沒有：不 push（重接時會用空 branch 蓋掉開著的 PR），照 crash 收尾
+  if (!(await git.hasCommits(branch, ctx.baseRef))) {
+    const reason = "agent 回報完成但 branch 上沒有 commit";
     return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, config.operator, n, reason) };
   }
 
@@ -147,18 +157,21 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
 
 /**
  * 重接時 agent/<N> 上有人手做的 commit：不碰 branch 和 PR，拿掉 ready-for-agent（不然每輪都會再問一次），留言請人決定。
- * 沒接單，所以沒有 agent-in-progress、也沒 assign。
+ * 沒接單，所以沒有 agent-in-progress、也沒 assign。回傳給 Slack 的一句原因。
  */
-async function askAboutForeignCommits(github: Deps["github"], n: number, authors: string[]) {
+async function askAboutForeignCommits(config: Config, github: Deps["github"], n: number, authors: string[]): Promise<string> {
+  const branch = agentBranch(n);
+  const reason = `\`${branch}\` 上有不是 runner 做的 commit（author：${authors.join("、")}），沒有重接`;
   await github.removeLabel(n, READY_LABEL);
   await github.comment(
     n,
     [
-      `🤖 沒有重接：\`agent/${n}\` 上有不是 runner 做的 commit（author：${authors.join("、")}），runner 不會蓋掉人手做的成果。`,
+      `🤖 沒有重接：\`${branch}\` 上有不是 runner 做的 commit（author：${authors.join("、")}），runner 不會蓋掉人手做的成果。`,
       "",
       "請決定要怎麼做：",
-      `- 要 runner 從 \`origin/dev\` 重做（會丟掉那些 commit）：刪掉遠端的 \`agent/${n}\`，再貼回 \`ready-for-agent\``,
-      "- 要保留那些 commit：自己在那條 branch 上接手，不要再貼 `ready-for-agent`",
+      `- 要 runner 從 \`origin/${config.baseBranch}\` 重做（會丟掉那些 commit）：刪掉遠端的 \`${branch}\`，再貼回 \`${READY_LABEL}\``,
+      `- 要保留那些 commit：自己在那條 branch 上接手，不要再貼 \`${READY_LABEL}\``,
     ].join("\n"),
   );
+  return reason;
 }

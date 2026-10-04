@@ -12,6 +12,7 @@ const snapshot = (operator: string, candidates: ReturnType<typeof issue>[], maxP
   timeoutMinutes: 60,
   runnerAuthor: "henry (agent)",
   branchAuthors: {} as Record<number, string[]>,
+  inProgress: [] as { number: number }[],
 });
 const picked = (candidates: ReturnType<typeof issue>[], at: Date) =>
   decide(snapshot("henry5720", candidates), at).flatMap((a) => (a.kind === "pickup" ? [a.issue.number] : []));
@@ -91,7 +92,7 @@ describe("decide", () => {
 describe("decide — re-pickup of an existing agent/<N>", () => {
   const actions = (branchAuthors: Record<number, string[]>, maxPerRound = 10) =>
     decide({ ...snapshot("henry5720", [issue({ number: 7 }), issue({ number: 12 })], maxPerRound), branchAuthors }, now).map(
-      (a) => (a.kind === "pickup" ? `pickup #${a.issue.number}` : `ask #${a.issue.number} (${a.authors.join(", ")})`),
+      (a) => (a.kind === "ask-about-foreign-commits" ? `ask #${a.issue.number} (${a.authors.join(", ")})` : `${a.kind} #${a.issue.number}`),
     );
 
   it.each([
@@ -121,5 +122,25 @@ describe("decide — auto-off (weekdays 08:00 Asia/Taipei = 00:00 UTC, timeout 6
     { name: "picks on Saturday 07:30 Taipei", at: "2026-10-02T23:30:00Z", picked: [10] },
   ])("$name", ({ at, picked: expected }) => {
     expect(picked([issue({ number: 10 })], new Date(at))).toEqual(expected);
+  });
+});
+
+describe("decide — leftover agent-in-progress from a hard-killed round", () => {
+  const actions = (inProgress: number[], candidates: ReturnType<typeof issue>[], maxPerRound = 10) =>
+    decide({ ...snapshot("henry5720", candidates, maxPerRound), inProgress: inProgress.map((number) => ({ number })) }, now).map(
+      (a) => `${a.kind} #${a.issue.number}`,
+    );
+
+  it.each([
+    { name: "wraps up every leftover before anything else, without a slot", inProgress: [50, 51], maxPerRound: 1, expected: ["wrap-up-leftover #50", "wrap-up-leftover #51", "pickup #7"] },
+    { name: "has nothing to wrap up when no issue carries agent-in-progress", inProgress: [], maxPerRound: 10, expected: ["pickup #7"] },
+  ])("$name", ({ inProgress, maxPerRound, expected }) => {
+    expect(actions(inProgress, [issue({ number: 7 })], maxPerRound)).toEqual(expected);
+  });
+
+  it("wraps up leftovers even when it is too close to auto-off to pick anything", () => {
+    expect(
+      decide({ ...snapshot("henry5720", [issue({ number: 7 })]), inProgress: [{ number: 50 }] }, new Date("2026-10-04T23:30:00Z")).map((a) => `${a.kind} #${a.issue.number}`),
+    ).toEqual(["wrap-up-leftover #50"]);
   });
 });

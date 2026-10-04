@@ -3,10 +3,8 @@
  * 都不自動重試：ready-for-agent 不會被貼回去，要重來由開單的人手動貼。
  */
 import type { Deps } from "./ports.js";
+import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, worktreeName } from "./names.js";
 import type { ImplementResult } from "./result.js";
-
-export const IN_PROGRESS_LABEL = "agent-in-progress";
-export const NEEDS_INFO_LABEL = "needs-info";
 
 /**
  * 每種結局的收尾：拿掉 agent-in-progress 和接單時 assign 的操作者（PR 的 assignee 留著）。
@@ -45,11 +43,11 @@ export function failureReason(err: unknown, signal: AbortSignal, timeoutMinutes:
 /** timeout／crash：拿掉 agent-in-progress 與操作者 assignee、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined） */
 export async function wrapUpCrash(deps: Deps, operator: string, n: number, reason: string): Promise<string | undefined> {
   const { github, git } = deps;
-  const name = `agent-${n}`;
-  const kept = (await git.listWorktrees()).find((w) => w.name === name);
+  const branch = agentBranch(n);
+  const kept = (await git.listWorktrees()).find((w) => w.name === worktreeName(branch));
   const where = kept
-    ? `沒 commit 的變更留在 worktree \`${kept.path}\`（3 天後自動刪），commit 在分支 \`agent/${n}\`。`
-    : `已 commit 的東西在 runner bot clone 的分支 \`agent/${n}\`（沒有推上 GitHub）。`;
+    ? `沒 commit 的變更留在 worktree \`${kept.path}\`（3 天後自動刪），commit 在分支 \`${branch}\`。`
+    : `已 commit 的東西在 runner bot clone 的分支 \`${branch}\`（沒有推上 GitHub）。`;
   await releaseIssue(deps, operator, n);
   await github.comment(
     n,

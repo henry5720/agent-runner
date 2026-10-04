@@ -112,6 +112,46 @@ describe("runRound — crash", () => {
   });
 });
 
+describe("runRound — done but nothing committed", () => {
+  const reason = "agent 回報完成但 branch 上沒有 commit";
+
+  it("ends as a crash: no push, no PR, labels and assignee dropped, the comment and Slack give the reason", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
+    deps.sandbox.commitless.add(42);
+
+    await runRound(testConfig, deps);
+
+    expect({
+      remote: deps.git.remoteBranches.has("agent/42"),
+      prs: deps.github.prs,
+      issue: deps.github.issue(42),
+      slack: deps.notifier.messages,
+    }).toEqual({
+      remote: false,
+      prs: [],
+      issue: expect.objectContaining({ labels: [], assignees: [], comments: [expect.anything(), expect.stringContaining(reason)] }),
+      slack: [expect.stringMatching(new RegExp(`^💥[\\s\\S]*原因：${reason}`))],
+    });
+  });
+
+  it("on re-pickup leaves the existing PR and its branch alone instead of force-pushing an empty branch over them", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ prTitle: "feat(x): first" }) } });
+    await runRound(testConfig, deps);
+    const remoteBefore = deps.git.remoteBranches.get("agent/42");
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult({ prTitle: "feat(x): second" }));
+    deps.sandbox.commitless.add(42);
+    await runRound(testConfig, deps);
+
+    expect({ remote: deps.git.remoteBranches.get("agent/42"), prs: deps.github.prs.map((p) => p.title), labels: deps.github.issue(42).labels }).toEqual({
+      remote: remoteBefore,
+      prs: ["feat(x): first"],
+      labels: [],
+    });
+  });
+});
+
 describe("runRound — leftovers from a hard-killed round", () => {
   const stale = () => issue({ number: 50, labels: ["agent-in-progress"], assignees: ["henry5720"] });
   const keptWorktree = { name: "agent-50", path: "/bot/widgets/.sandcastle/worktrees/agent-50", modifiedAt: new Date("2026-10-04T14:30:00Z") };

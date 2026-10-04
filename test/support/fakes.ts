@@ -152,6 +152,8 @@ export class FakeGit implements Git {
   readonly remoteBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
   /** origin 上每條 branch 相對 origin/dev 的 commit author name（runner push 的都是 runner 的 git author） */
   readonly remoteAuthors = new Map<string, string[]>();
+  /** 本地 branch 上、不在 base 裡的 commit 數（sandbox run 做完會加） */
+  readonly commits = new Map<string, number>();
   /** bot clone 的 `.sandcastle/worktrees/` 底下有的目錄 */
   worktrees: Worktree[] = [];
 
@@ -175,6 +177,10 @@ export class FakeGit implements Git {
     // 跟真的 git 一樣：branch 被某個 worktree checkout 著時 `branch -f` 會失敗
     if (this.worktrees.some((w) => w.name === branch.replace(/\//g, "-"))) throw new Error(`cannot force update the branch '${branch}' used by worktree`);
     this.localBranches.set(branch, { base: startPoint, fetchedFirst: this.fetched });
+    this.commits.set(branch, 0);
+  }
+  async hasCommits(branch: string) {
+    return (this.commits.get(branch) ?? 0) > 0;
   }
   async push(branch: string) {
     const local = this.localBranches.get(branch);
@@ -204,6 +210,8 @@ export class FakeSandbox implements Sandbox {
   readonly builtImages: { tag: string; nodeVersion: string; fresh?: boolean }[] = [];
   readonly runs: ImplementRequest[] = [];
   readonly reviews: ImplementRequest[] = [];
+  /** 這些單的實作 run 回報做完，卻沒在 branch 上留下任何 commit */
+  readonly commitless = new Set<number>();
 
   constructor(
     private readonly results: Record<number, ScriptedRun>,
@@ -244,6 +252,7 @@ export class FakeSandbox implements Sandbox {
       }
       throw result.throws;
     }
+    if (this.host && !this.commitless.has(req.issue.number)) this.host.git.commits.set(req.branch, (this.host.git.commits.get(req.branch) ?? 0) + 1);
     return result;
   }
   async review(req: ImplementRequest) {

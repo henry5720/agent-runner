@@ -253,6 +253,17 @@ describe("runRound — re-pickup", () => {
     expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42, 42]);
   });
 
+  it("drops needs-info when a human puts ready-for-agent back on a needs-info issue, starting over", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }) } });
+    await runRound(testConfig, deps);
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult());
+    await runRound(testConfig, deps);
+
+    expect({ labels: deps.github.issue(42).labels, prs: deps.github.prs.map((p) => p.head) }).toEqual({ labels: [], prs: ["agent/42"] });
+  });
+
   it("keeps the same PR, updating its title and body, and drops [WIP] once everything passes", async () => {
     const deps = fakeDeps({
       issues: [issue({ number: 42 })],

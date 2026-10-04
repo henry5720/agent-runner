@@ -1,7 +1,7 @@
 import { nextAutoOff } from "./autoOff.js";
+import { READY_LABEL } from "./names.js";
 import type { Action, Issue, Snapshot } from "./types.js";
 
-export const READY_LABEL = "ready-for-agent";
 const WAYFINDER_PREFIX = "wayfinder:";
 const WAYFINDER_MAP_LABEL = "wayfinder:map";
 
@@ -44,5 +44,7 @@ export function decide(snapshot: Snapshot, now: Date): Action[] {
     .filter((issue) => foreignAuthors(issue).length === 0)
     .slice(0, snapshot.maxPerRound)
     .map((issue) => ({ kind: "pickup", issue }));
-  return [...asks, ...pickups];
+  // 殘留不受自動關、每輪上限影響：收尾不跑 sandbox
+  const leftovers: Action[] = snapshot.inProgress.map((issue) => ({ kind: "wrap-up-leftover", issue }));
+  return [...leftovers, ...asks, ...pickups];
 }

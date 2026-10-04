@@ -30,10 +30,14 @@ export interface Snapshot {
   runnerAuthor: string;
   /** origin 上 agent/<N> 相對 base 的 commit author name；branch 不存在 → 沒有這個 key 或空陣列 */
   branchAuthors: Record<number, string[]>;
+  /** 一輪開頭還帶 agent-in-progress 的單。flock 保證同時只有一輪，所以都是被硬殺的殘留 */
+  inProgress: Pick<Issue, "number">[];
 }
 
 /** decide() 產出的動作。後面的票往這個 union 加種類。 */
 export type Action =
+  /** 上一輪被硬殺的殘留：不重跑，照 crash 收尾 */
+  | { kind: "wrap-up-leftover"; issue: Pick<Issue, "number"> }
   | { kind: "pickup"; issue: Issue }
   /** 重接時 agent/<N> 上有人手做的 commit：不碰 branch，留言請人決定 */
   | { kind: "ask-about-foreign-commits"; issue: Issue; authors: string[] };

@@ -54,6 +54,20 @@ describe("runRound — Slack notice per issue", () => {
     ]);
   });
 
+  it("stopped because agent/<N> has someone else's commit: no PR link, gives the stop reason", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42, title: "匯出按鈕" })], results: { 42: passResult() } });
+    await runRound(testConfig, deps);
+    deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.notifier.messages.length = 0;
+
+    await runRound(testConfig, deps);
+
+    expect(deps.notifier.messages).toEqual([
+      "✋ <https://github.com/acme/widgets/issues/42|#42 匯出按鈕>\n原因：`agent/42` 上有不是 runner 做的 commit（author：henry5720），沒有重接",
+    ]);
+  });
+
   it("escapes Slack control characters in the issue title", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42, title: "a <b> & c" })], results: { 42: passResult() } });
 

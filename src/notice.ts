@@ -3,11 +3,15 @@
  * 結局 emoji＋連到 issue 的單名、有 PR 才放 PR 連結、花多久、一句原因（全過不寫）。
  * 格式是 Slack mrkdwn：連結寫 `<url|文字>`，文字裡的 `& < >` 要跳脫。
  */
+import { agentBranch } from "./names.js";
+
 export type Ending =
   | { kind: "pass"; pr: { number: number; url: string } }
   | { kind: "wip"; pr: { number: number; url: string }; failedChecks: string[] }
   | { kind: "needs-info"; questions: string[] }
-  | { kind: "crash"; reason: string; worktreePath?: string };
+  | { kind: "crash"; reason: string; worktreePath?: string }
+  /** 沒接單就停手（例如 agent/<N> 上有人手做的 commit） */
+  | { kind: "stopped"; reason: string };
 
 export interface NoticeInput {
   repo: string;
@@ -17,7 +21,7 @@ export interface NoticeInput {
   ending: Ending;
 }
 
-const EMOJI: Record<Ending["kind"], string> = { pass: "✅", wip: "🚧", "needs-info": "❓", crash: "💥" };
+const EMOJI: Record<Ending["kind"], string> = { pass: "✅", wip: "🚧", "needs-info": "❓", crash: "💥", stopped: "✋" };
 
 const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
@@ -35,8 +39,10 @@ function reason(ending: Ending, issueNumber: number): string | undefined {
       return `沒過：${ending.failedChecks.join("、") || "（reviewer 沒有列出是哪一項）"}`;
     case "needs-info":
       return `卡在：${ending.questions[0] ?? "（agent 沒有列出具體問題）"}`;
+    case "stopped":
+      return `原因：${ending.reason}`;
     case "crash":
-      return `原因：${ending.reason}；${ending.worktreePath ? `worktree \`${ending.worktreePath}\`` : `沒有保留 worktree，commit 在分支 \`agent/${issueNumber}\``}`;
+      return `原因：${ending.reason}；${ending.worktreePath ? `worktree \`${ending.worktreePath}\`` : `沒有保留 worktree，commit 在分支 \`${agentBranch(issueNumber)}\``}`;
   }
 }
 

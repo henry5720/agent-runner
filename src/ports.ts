@@ -25,7 +25,7 @@ export interface GitHub {
   listCandidates(): Promise<Issue[]>;
   /** 還開著、帶 agent-in-progress 的單（一輪開頭還帶著 = 上一輪被硬殺的殘留）。只回 number：收尾用不到 parent／blocker，不另外查 */
   listInProgress(): Promise<Pick<Issue, "number">[]>;
-  /** 沒有就建、有就更新（idempotent） */
+  /** 沒有才建；已經有就不動（不蓋掉人改過的顏色與說明） */
   createLabel(name: string, opts: { color: string; description: string }): Promise<void>;
   /** label 不存在會失敗，先 createLabel */
   addLabel(issue: number, label: string): Promise<void>;
@@ -48,6 +48,8 @@ export interface Git {
   showFile(ref: string, path: string): Promise<string>;
   /** origin/<branch> 上、不在 baseRef 裡的 commit 的 author name（`%an`；runner 和操作者共用 email，只能比名字）。branch 不在 origin → [] */
   branchAuthors(branch: string, baseRef: string): Promise<string[]>;
+  /** 本地 branch 上有沒有不在 baseRef 裡的 commit（`git rev-list --count baseRef..branch` > 0） */
+  hasCommits(branch: string, baseRef: string): Promise<boolean>;
   /** `git branch -f <branch> <startPoint>` */
   resetBranch(branch: string, startPoint: string): Promise<void>;
   /** `git push --force-with-lease origin <branch>` */
