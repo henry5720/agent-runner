@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createGit } from "../src/git.js";
 
-/** 真的 git：本機 bare remote ＋ 操作者的 clone ＋ runner 的 bot clone（兩者同 email、不同 user.name，跟 company-ec2 一樣） */
+/** 真的 git：本機 bare remote ＋ 操作者的 clone ＋ runner 的 bot clone（兩者同 email、不同 user.name，跟正式部署一樣） */
 const EMAIL = "operator@example.com";
 const RUNNER = "henry (agent)";
 const OPERATOR = "henry5720";

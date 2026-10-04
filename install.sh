@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 裝好（或修好）company-ec2 上的 agent-runner。可以重複跑，第二次不會改到任何東西。
+# 裝好（或修好）這台主機上的 agent-runner。可以重複跑，第二次不會改到任何東西。
 # 不 build image（第一輪開頭會 build）、不打開開關（要做事時手動 `agent-runner on`）。
 # 路徑與身分從 src/config.ts 讀（`src/cli.ts install-env`），這裡不另寫一份。
 set -euo pipefail

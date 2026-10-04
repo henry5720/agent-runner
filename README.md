@@ -1,6 +1,6 @@
 # agent-runner
 
-在 company-ec2 上把帶 `ready-for-agent` 的 issue 丟進 Docker sandbox（[sandcastle](https://github.com/mattpocock/sandcastle)）實作，
+在一台長期開著的 Linux 主機上把帶 `ready-for-agent` 的 issue 丟進 Docker sandbox（[sandcastle](https://github.com/mattpocock/sandcastle)）實作，
 然後從 `agent/<N>` 開 draft PR。設計見 ShuChenAI/teamsync-frontend#2692。
 
 目前可以手動跑一輪：實作 run → reviewer run → 全過開 draft PR，檢查沒過開 `[WIP]` draft PR（#2696、#2697）。
@@ -12,7 +12,7 @@ npm test            # unit test（不連網）
 npm run typecheck
 ```
 
-裝在 company-ec2（可重複跑；不 build image、不打開開關）：
+安裝（需要 Linux＋systemd user session、docker、node；可重複跑；不 build image、不打開開關）：
 
 ```bash
 git clone <runner repo> ~/agents/agent-runner && ~/agents/agent-runner/install.sh
