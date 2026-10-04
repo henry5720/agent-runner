@@ -1,4 +1,4 @@
-/** 跑一輪：`npm run round`，或 systemd 的 `agent-runner.service`（`agent-runner on` 之後每 60 分鐘）。 */
+/** 跑一輪：`npm run round`，或 systemd 的 `agent-runner.service`（`agent-runner on` 之後每 `roundIntervalMinutes` 分鐘）。 */
 import { join } from "node:path";
 import { systemClock } from "./clock.js";
 import { config } from "./config.js";

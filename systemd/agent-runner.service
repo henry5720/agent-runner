@@ -16,5 +16,5 @@ Environment=AGENT_RUNNER_FOLLOW_TIMER=1
 KillMode=mixed
 KillSignal=SIGUSR2
 TimeoutStopSec=5min
-# 每張 60 分鐘、一輪最多 2 張，再留建 image 的時間；只是最後防線
+# 每張 timeoutMinutes（60）× 一輪 maxPerRound（2）張，再留建 image 的時間；只是最後防線
 TimeoutStartSec=3h

@@ -59,6 +59,8 @@ mkdir -p "$UNIT_DIR"
 for unit in "$RUNNER_DIR"/systemd/*.service "$RUNNER_DIR"/systemd/*.timer; do
   ln -sfn "$unit" "$UNIT_DIR/$(basename "$unit")"
 done
+# 輪次間隔與自動關時間從 src/config.ts 寫成 drop-in（內容一樣就不動）
+node --import tsx src/cli.ts write-timer-dropins "$UNIT_DIR"
 systemctl --user daemon-reload
 
 step "linger：登出之後 timer 照跑"

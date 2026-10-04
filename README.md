@@ -20,12 +20,12 @@ git clone <runner repo> ~/agents/agent-runner && ~/agents/agent-runner/install.s
 
 `install.sh`：`npm ci` → 沒有 bot clone 就 clone，設 `.sandcastle/` exclude 與 `user.name` → `mkdir -p` pnpm store →
 檢查 `~/.config/agent-runner/env` 存在且 600（不符合就印出要放的變數並停下）→ 連結 `systemd/` 到 `~/.config/systemd/user/` →
-`daemon-reload` → `loginctl enable-linger` → `agent-runner` 連到 `~/.local/bin`。
+寫 timer 的 drop-in（輪次間隔、自動關時間，從 `src/config.ts` 產生）→ `daemon-reload` → `loginctl enable-linger` → `agent-runner` 連到 `~/.local/bin`。
 
 開關（systemd user units）：
 
 ```bash
-agent-runner on          # 立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
+agent-runner on          # 立刻跑一輪，之後每 roundIntervalMinutes（60）分鐘一輪；到 autoOff（平日 08:00 Asia/Taipei）自動關
 agent-runner off         # 正在做的那張做完就停
 agent-runner off --now   # 立刻停，正在做的那張照 crash 收尾
 agent-runner status      # 開關、下次觸發、目前在跑哪張、runner commit
@@ -37,6 +37,12 @@ agent-runner clean-store             # 清空 runner 自己的 pnpm store
 agent-runner clean-worktrees [--all] # 刪超過 3 天的 sandcastle worktree；--all 全刪
 ```
 
+輪次間隔與自動關時間只寫在 `src/config.ts`：`on`、`update`、`install.sh` 會把它們寫成
+`~/.config/systemd/user/agent-runner{,-autooff}.timer.d/config.conf`（`src/systemd.ts`），`systemd/*.timer` 本身不寫時間。
+
+重接時 `agent/<N>` 上有不是 runner 做的 commit：不碰 branch 和 PR，留言請人決定、發一則 Slack（✋），
+並拿掉 `ready-for-agent`，不然每一輪都會再問一次。要 runner 重做就照留言刪掉遠端 branch 再貼回。
+
 runner 自己失敗（`agent-runner.service` 的 `OnFailure=`）→ `agent-runner-failure.service` 發 Slack 附 `journalctl` 最後 20 行，
 同一原因一晚（到下一次 08:00 Asia/Taipei）只發一次，記錄在 `~/.local/state/agent-runner/failure-notified.json`。
 
@@ -44,7 +50,9 @@ runner 自己失敗（`agent-runner.service` 的 `OnFailure=`）→ `agent-runne
 
 | 檔案 | 做什麼 |
 | --- | --- |
-| `src/config.ts` | 全部設定（目標 repo、挑單條件、路徑、git author、timeout…） |
+| `src/config.ts` | 全部設定（目標 repo、挑單條件、路徑、git author、timeout、輪次間隔、自動關…） |
+| `src/names.ts` | label 名稱、`agent/<N>` branch、sandcastle worktree 目錄名 |
+| `src/systemd.ts` | 從設定產生 timer 的 drop-in（輪次間隔、自動關 OnCalendar） |
 | `src/decide.ts` | 純函式 `decide(snapshot, now)`：這一輪要做哪些事 |
 | `src/runRound.ts` | 一輪的流程，邊界全部從 `deps` 注入 |
 | `src/notice.ts` | 每張單收尾的 Slack 訊息文字（結局 emoji、單名、PR、花多久、一句原因） |
@@ -59,7 +67,7 @@ runner 自己失敗（`agent-runner.service` 的 `OnFailure=`）→ `agent-runne
 | `install.sh` | 安裝／修環境（可重複跑） |
 | `systemd/` | `agent-runner.service`／`.timer`、`agent-runner-autooff.timer`／`.service`、`agent-runner-failure.service` |
 | `src/image.ts` | image tag = hash(Dockerfile + 目標 repo 的 `.nvmrc`) |
-| `src/endings.ts` | 沒開成 PR 的結局：`needs-info`、timeout／crash 留言、殘留 `agent-in-progress`、刪超過 3 天的 worktree |
+| `src/endings.ts` | 沒開成 PR 的結局：`needs-info`、timeout／crash（含做完卻沒 commit）留言、殘留 `agent-in-progress`、刪超過 3 天的 worktree |
 | `src/prBody.ts` `src/result.ts` | PR body、agent 回報的結構化結果 schema |
 | `prompts/implement.md` `prompts/review.md` | 實作 prompt、reviewer prompt（只指向目標 repo 的 `CLAUDE.md` 和 skills） |
 | `Dockerfile` | sandbox image |

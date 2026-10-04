@@ -12,6 +12,7 @@ import { createGit } from "./git.js";
 import { cleanWorktrees, rebuildImage } from "./maintenance.js";
 import { consoleNotifier, createSlackNotifier } from "./notifier.js";
 import { createSandbox } from "./sandbox.js";
+import { writeTimerDropins } from "./systemd.js";
 import { readSecrets, slackWebhookUrl } from "./secrets.js";
 
 const run = promisify(execFile);
@@ -53,6 +54,14 @@ switch (command) {
       { notifier: webhookUrl ? createSlackNotifier(webhookUrl) : consoleNotifier, stateDir: config.stateDir, now: systemClock.now(), nightEndsAt: config.autoOff },
       { unit, result: process.env.MONITOR_SERVICE_RESULT || "unknown", journal },
     );
+    break;
+  }
+
+  // `agent-runner on`／`update`、install.sh 叫的：timer 的間隔與自動關時間從 config 寫成 drop-in，之後要 daemon-reload
+  case "write-timer-dropins": {
+    const [unitDir] = args;
+    if (!unitDir) throw new Error("write-timer-dropins <unit dir>");
+    for (const path of await writeTimerDropins(config, unitDir)) console.log(`寫入 ${path}`);
     break;
   }
 

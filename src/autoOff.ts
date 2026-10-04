@@ -1,4 +1,4 @@
-/** 自動關的時間表。systemd 那邊對應 `systemd/agent-runner-autooff.timer` 的 `OnCalendar`，改一邊要改另一邊。 */
+/** 自動關的時間表。systemd 的 `OnCalendar` 也從它產生（src/systemd.ts）。 */
 export interface AutoOffSchedule {
   /** 0 = 星期日 … 6 = 星期六 */
   weekdays: number[];

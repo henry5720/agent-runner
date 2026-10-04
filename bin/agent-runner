@@ -4,6 +4,7 @@
 set -euo pipefail
 
 RUNNER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+UNIT_DIR="$HOME/.config/systemd/user"
 STATE_DIR="$HOME/.local/state/agent-runner"
 TIMER=agent-runner.timer
 AUTOOFF_TIMER=agent-runner-autooff.timer
@@ -13,7 +14,7 @@ usage() {
   cat <<USAGE
 usage: agent-runner <command>
 
-  on           打開：立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
+  on           打開：立刻跑一輪，之後每隔一段時間一輪，到點自動關（間隔與時間見 src/config.ts）
   off          關掉：正在做的那張做完，不再接新單
   off --now    立刻停：中斷正在做的那張、照 crash 收尾（最多等 5 分鐘）
   status       開關、下次觸發、目前在跑哪張、runner commit
@@ -36,7 +37,14 @@ next_elapse() {
   echo "${next:--}"
 }
 
+# timer 的間隔與自動關時間從 src/config.ts 寫成 drop-in（src/systemd.ts），改了設定下次 on 就生效
+write_timer_dropins() {
+  (load_node && node --import tsx src/cli.ts write-timer-dropins "$UNIT_DIR")
+  user_ctl daemon-reload
+}
+
 cmd_on() {
+  write_timer_dropins
   user_ctl start "$AUTOOFF_TIMER" "$TIMER"
   echo "on：下一輪 $(next_elapse "$TIMER")，自動關 $(next_elapse "$AUTOOFF_TIMER")"
 }
@@ -79,11 +87,15 @@ cmd_status() {
   echo "runner：    $(git -C "$RUNNER_DIR" rev-parse --short HEAD)"
 }
 
-# user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿
+# user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿。
+# nvm.sh 不是為 set -eu 寫的（會讀沒設的變數、內部指令會回非 0），source 和 nvm use 期間先關掉
 load_node() {
   if ! command -v node >/dev/null; then
+    set +eu
     # shellcheck source=/dev/null
     . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+    nvm use --silent default >/dev/null
+    set -eu
   fi
   cd "$RUNNER_DIR"
 }
@@ -110,8 +122,9 @@ cmd_update() {
   with_round_lock
   git -C "$RUNNER_DIR" pull --ff-only
   (cd "$RUNNER_DIR" && npm ci)
-  # units 是連到 repo 的 symlink，內容變了要 reload 才生效；新增的 unit 要重跑 install.sh
-  user_ctl daemon-reload
+  # units 是連到 repo 的 symlink，內容變了要 reload 才生效；新增的 unit 要重跑 install.sh。
+  # 設定可能改了間隔或自動關時間，drop-in 一起重寫
+  write_timer_dropins
   echo "update：runner 在 $(git -C "$RUNNER_DIR" rev-parse --short HEAD)"
 }
 

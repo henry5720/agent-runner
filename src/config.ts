@@ -16,6 +16,8 @@ export interface Config {
   pickSearch: string;
   /** 一輪最多接幾張（一次一張，做完才接下一張） */
   maxPerRound: number;
+  /** 打開之後每幾分鐘一輪（systemd `agent-runner.timer` 的 OnUnitActiveSec，見 src/systemd.ts） */
+  roundIntervalMinutes: number;
   /** PR 的 base，也是 agent/<N> 的起點（`origin/<baseBranch>`） */
   baseBranch: string;
   /** bot clone 的絕對路徑（sandcastle 的 cwd） */
@@ -28,7 +30,7 @@ export interface Config {
   gitAuthor: string;
   /** 每張單的上限（實作＋檢查＋review 全部算在內） */
   timeoutMinutes: number;
-  /** 自動關（systemd `agent-runner-autooff.timer` 的 OnCalendar 要跟這裡一致）；距離它不到一個 timeout 就不接新單 */
+  /** 自動關（也是 systemd `agent-runner-autooff.timer` 的 OnCalendar，見 src/systemd.ts）；距離它不到一個 timeout 就不接新單 */
   autoOff: AutoOffSchedule;
   /** runner 狀態目錄：輪次鎖、目前在跑哪張（`agent-runner status` 讀） */
   stateDir: string;
@@ -51,6 +53,7 @@ export const config: Config = {
   operator: "henry5720",
   pickSearch: "-is:blocked no:assignee",
   maxPerRound: 2,
+  roundIntervalMinutes: 60,
   baseBranch: "dev",
   botClonePath: join(home, "agents/teamsync-frontend"),
   nvmrcPath: "frontend/.nvmrc",

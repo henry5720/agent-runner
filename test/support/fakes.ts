@@ -53,6 +53,7 @@ export const testConfig: Config = {
   operator: "henry5720",
   pickSearch: "-is:blocked no:assignee",
   maxPerRound: 2,
+  roundIntervalMinutes: 60,
   baseBranch: "dev",
   botClonePath: "/bot/widgets",
   nvmrcPath: "frontend/.nvmrc",
