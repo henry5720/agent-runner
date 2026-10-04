@@ -75,7 +75,7 @@ export interface FakeIssue extends Issue {
 export class FakeGitHub implements GitHub {
   readonly issues = new Map<number, FakeIssue>();
   readonly repoLabels: string[];
-  readonly prs: (NewPr & { number: number; url: string })[] = [];
+  readonly prs: (NewPr & { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED" })[] = [];
 
   constructor(issues: Issue[], repoLabels = ["ready-for-agent"]) {
     for (const i of issues) this.issues.set(i.number, { ...i, labels: [...i.labels], assignees: [...i.assignees], comments: [] });
@@ -111,14 +111,38 @@ export class FakeGitHub implements GitHub {
     const i = this.issue(n);
     if (!i.assignees.includes(login)) i.assignees.push(login);
   }
+  async unassign(n: number, login: string) {
+    const i = this.issue(n);
+    i.assignees = i.assignees.filter((a) => a !== login);
+  }
   async comment(n: number, body: string) {
     this.issue(n).comments.push(body);
   }
   async createPr(pr: NewPr) {
     const number = 1000 + this.prs.length;
     const url = `https://github.com/acme/widgets/pull/${number}`;
-    this.prs.push({ ...pr, number, url });
+    this.prs.push({ ...pr, number, url, state: "OPEN" });
     return { number, url };
+  }
+  /** push 到某條 branch 時，head 是它、開著而且 ready 的 PR 會跑一次 CI（跟 ci.yml 的 agent draft gate 一樣） */
+  readonly ciRuns: number[] = [];
+  onPush(branch: string) {
+    for (const p of this.prs) if (p.head === branch && p.state === "OPEN" && !p.draft) this.ciRuns.push(p.number);
+  }
+  pr(number: number) {
+    const found = this.prs.find((p) => p.number === number);
+    if (!found) throw new Error(`fake github: no PR #${number}`);
+    return found;
+  }
+  async findOpenPr(head: string) {
+    const found = this.prs.find((p) => p.head === head && p.state === "OPEN");
+    return found ? { number: found.number, url: found.url, isDraft: found.draft } : null;
+  }
+  async updatePr(number: number, edit: { title: string; body: string }) {
+    Object.assign(this.pr(number), edit);
+  }
+  async markPrDraft(number: number) {
+    this.pr(number).draft = true;
   }
 }
 
@@ -126,10 +150,15 @@ export class FakeGit implements Git {
   private fetched = false;
   readonly localBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
   readonly remoteBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
+  /** origin 上每條 branch 相對 origin/dev 的 commit author name（runner push 的都是 runner 的 git author） */
+  readonly remoteAuthors = new Map<string, string[]>();
   /** bot clone 的 `.sandcastle/worktrees/` 底下有的目錄 */
   worktrees: Worktree[] = [];
 
-  constructor(private readonly files: Record<string, string>) {}
+  constructor(
+    private readonly files: Record<string, string>,
+    private readonly onPush: (branch: string) => void = () => {},
+  ) {}
 
   async fetch() {
     this.fetched = true;
@@ -139,13 +168,20 @@ export class FakeGit implements Git {
     if (content === undefined) throw new Error(`fake git: ${ref}:${path} does not exist`);
     return content;
   }
+  async branchAuthors(branch: string) {
+    return [...(this.remoteAuthors.get(branch) ?? [])];
+  }
   async resetBranch(branch: string, startPoint: string) {
+    // 跟真的 git 一樣：branch 被某個 worktree checkout 著時 `branch -f` 會失敗
+    if (this.worktrees.some((w) => w.name === branch.replace(/\//g, "-"))) throw new Error(`cannot force update the branch '${branch}' used by worktree`);
     this.localBranches.set(branch, { base: startPoint, fetchedFirst: this.fetched });
   }
   async push(branch: string) {
     const local = this.localBranches.get(branch);
     if (!local) throw new Error(`fake git: no local branch ${branch}`);
     this.remoteBranches.set(branch, { ...local });
+    this.remoteAuthors.set(branch, [testConfig.gitAuthor]);
+    this.onPush(branch);
   }
   async listWorktrees() {
     return this.worktrees.map((w) => ({ ...w }));
@@ -179,6 +215,11 @@ export class FakeSandbox implements Sandbox {
     this.images = new Set(images);
   }
 
+  /** 換掉某張單之後 run 的結果（重接時第二次 run 回不一樣的東西） */
+  script(n: number, result: ImplementResult, review: ReviewResult = reviewResult()) {
+    this.results[n] = result;
+    this.reviewResults[n] = review;
+  }
   async dockerfile() {
     return this.dockerfileText;
   }
@@ -275,10 +316,11 @@ export function fakeDeps(opts: {
   minutesPerRun?: number;
 }) {
   const nvmrcKey = `origin/${testConfig.baseBranch}:${testConfig.nvmrcPath}`;
-  const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" });
   const clock = new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z"));
+  const github = new FakeGitHub(opts.issues);
+  const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" }, (branch) => github.onPush(branch));
   return {
-    github: new FakeGitHub(opts.issues),
+    github,
     git,
     sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun }),
     notifier: new FakeNotifier(),

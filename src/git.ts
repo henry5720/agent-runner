@@ -19,6 +19,14 @@ export function createGit(opts: { repoPath: string }): Git {
     async showFile(ref, path) {
       return git(["show", `${ref}:${path}`]);
     },
+    async branchAuthors(branch, baseRef) {
+      // 看遠端：人可能直接在 GitHub 上 push，本地的 agent/<N> 可能是舊的
+      const remote = `refs/remotes/origin/${branch}`;
+      const exists = await git(["rev-parse", "--verify", "--quiet", remote]).then(() => true, () => false);
+      if (!exists) return [];
+      const names = (await git(["log", "--format=%an", `${baseRef}..${remote}`])).split("\n").filter(Boolean);
+      return [...new Set(names)];
+    },
     async resetBranch(branch, startPoint) {
       await git(["branch", "-f", "--no-track", branch, startPoint]);
     },

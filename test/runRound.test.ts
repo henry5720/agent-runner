@@ -22,14 +22,14 @@ describe("runRound — happy path", () => {
     ]);
   });
 
-  it("leaves the issue with no runner labels, assigned to the operator, with a pickup comment", async () => {
+  it("leaves the issue with no runner labels, no assignee, and a pickup comment", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
 
     await runRound(testConfig, deps);
 
     expect(deps.github.issue(42)).toMatchObject({
       labels: [],
-      assignees: ["henry5720"],
+      assignees: [],
       comments: [expect.stringContaining("已接單")],
     });
   });
@@ -231,6 +231,97 @@ describe("runRound — pick filters", () => {
     expect({ prs: deps.github.prs.map((p) => p.head), left: deps.github.issue(30).labels }).toEqual({
       prs: ["agent/7", "agent/12"],
       left: ["ready-for-agent"],
+    });
+  });
+});
+
+describe("runRound — re-pickup", () => {
+  it.each([
+    { ending: "pass", first: passResult(), review: reviewResult() },
+    { ending: "[WIP]", first: passResult(), review: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
+    { ending: "needs-info", first: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }), review: reviewResult() },
+    { ending: "crash", first: { throws: new Error("pnpm install failed") }, review: reviewResult() },
+  ])("can pick the same issue again after a $ending ending once a human puts ready-for-agent back", async ({ first, review }) => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: first }, reviews: { 42: review } });
+    await runRound(testConfig, deps);
+    expect(deps.github.issue(42).assignees).toEqual([]);
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult());
+    await runRound(testConfig, deps);
+
+    expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42, 42]);
+  });
+
+  it("keeps the same PR, updating its title and body, and drops [WIP] once everything passes", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })],
+      results: { 42: passResult({ prTitle: "feat(x): add y" }) },
+      reviews: { 42: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
+    });
+    await runRound(testConfig, deps);
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult({ prTitle: "feat(x): add y properly", summary: "第二次做" }), reviewResult());
+    await runRound(testConfig, deps);
+
+    expect(deps.github.prs.map((p) => ({ head: p.head, title: p.title, draft: p.draft, secondTry: p.body.includes("第二次做"), wip: p.body.includes("## 沒過的檢查") }))).toEqual([
+      { head: "agent/42", title: "feat(x): add y properly", draft: true, secondTry: true, wip: false },
+    ]);
+  });
+
+  it("turns a PR the operator already marked ready back into a draft before pushing, so the redo does not run CI", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
+    await runRound(testConfig, deps);
+    const pr = deps.github.prs[0]!;
+    pr.draft = false;
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    await runRound(testConfig, deps);
+
+    expect({ draft: pr.draft, ciRuns: deps.github.ciRuns }).toEqual({ draft: true, ciRuns: [] });
+  });
+
+  it("throws away the half-done agent-<N> worktree and restarts agent/<N> from origin/dev", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
+    await runRound(testConfig, deps);
+    deps.git.worktrees.push({ name: "agent-42", path: "/bot/widgets/.sandcastle/worktrees/agent-42", modifiedAt: deps.clock.now() });
+    deps.git.localBranches.set("agent/42", { base: "half-done", fetchedFirst: true });
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    await runRound(testConfig, deps);
+
+    expect({ runs: deps.sandbox.runs.length, worktrees: deps.git.worktrees, remote: deps.git.remoteBranches.get("agent/42")?.base }).toEqual({
+      runs: 2,
+      worktrees: [],
+      remote: "origin/dev",
+    });
+  });
+
+  it("stops and asks when agent/<N> has a commit by someone other than the runner, leaving the branch and PR alone", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ prTitle: "feat(x): first" }) } });
+    await runRound(testConfig, deps);
+    deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
+    const remoteBefore = deps.git.remoteBranches.get("agent/42");
+
+    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult({ prTitle: "feat(x): second" }));
+    await runRound(testConfig, deps);
+
+    expect({
+      runs: deps.sandbox.runs.length,
+      remote: deps.git.remoteBranches.get("agent/42"),
+      prTitles: deps.github.prs.map((p) => p.title),
+      issue: deps.github.issue(42),
+    }).toEqual({
+      runs: 1,
+      remote: remoteBefore,
+      prTitles: ["feat(x): first"],
+      issue: expect.objectContaining({
+        labels: [],
+        assignees: [],
+        comments: [expect.stringContaining("已接單"), expect.stringMatching(/henry5720[\s\S]*ready-for-agent/)],
+      }),
     });
   });
 });

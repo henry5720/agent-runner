@@ -8,11 +8,21 @@ import type { ImplementResult } from "./result.js";
 export const IN_PROGRESS_LABEL = "agent-in-progress";
 export const NEEDS_INFO_LABEL = "needs-info";
 
-export async function wrapUpNeedsInfo({ github }: Deps, n: number, result: ImplementResult): Promise<void> {
+/**
+ * 每種結局的收尾：拿掉 agent-in-progress 和接單時 assign 的操作者（PR 的 assignee 留著）。
+ * 挑單條件有 `no:assignee`，不拿掉的話人貼回 ready-for-agent 也接不到。
+ */
+export async function releaseIssue({ github }: Pick<Deps, "github">, operator: string, n: number): Promise<void> {
+  await github.removeLabel(n, IN_PROGRESS_LABEL);
+  await github.unassign(n, operator);
+}
+
+export async function wrapUpNeedsInfo(deps: Deps, operator: string, n: number, result: ImplementResult): Promise<void> {
+  const { github } = deps;
   const questions = result.questions.length > 0 ? result.questions : ["（agent 沒有列出具體問題）"];
   await github.createLabel(NEEDS_INFO_LABEL, { color: "d876e3", description: "單子不清楚，等開單的人補資訊" });
   await github.addLabel(n, NEEDS_INFO_LABEL);
-  await github.removeLabel(n, IN_PROGRESS_LABEL);
+  await releaseIssue(deps, operator, n);
   await github.comment(
     n,
     [
@@ -32,14 +42,15 @@ export function failureReason(err: unknown, signal: AbortSignal, timeoutMinutes:
   return message.split("\n")[0]?.trim() || "未知錯誤";
 }
 
-/** timeout／crash：拿掉 agent-in-progress、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined） */
-export async function wrapUpCrash({ github, git }: Deps, n: number, reason: string): Promise<string | undefined> {
+/** timeout／crash：拿掉 agent-in-progress 與操作者 assignee、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined） */
+export async function wrapUpCrash(deps: Deps, operator: string, n: number, reason: string): Promise<string | undefined> {
+  const { github, git } = deps;
   const name = `agent-${n}`;
   const kept = (await git.listWorktrees()).find((w) => w.name === name);
   const where = kept
     ? `沒 commit 的變更留在 worktree \`${kept.path}\`（3 天後自動刪），commit 在分支 \`agent/${n}\`。`
     : `已 commit 的東西在 runner bot clone 的分支 \`agent/${n}\`（沒有推上 GitHub）。`;
-  await github.removeLabel(n, IN_PROGRESS_LABEL);
+  await releaseIssue(deps, operator, n);
   await github.comment(
     n,
     [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, "", "不會自動重試；要重來就手動貼回 `ready-for-agent`。"].join("\n"),

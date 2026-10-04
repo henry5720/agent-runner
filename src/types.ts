@@ -26,7 +26,14 @@ export interface Snapshot {
   timeoutMinutes: number;
   /** 一輪最多接幾張 */
   maxPerRound: number;
+  /** runner 的 git author name；agent/<N> 上有別的 author 就是人動過 */
+  runnerAuthor: string;
+  /** origin 上 agent/<N> 相對 base 的 commit author name；branch 不存在 → 沒有這個 key 或空陣列 */
+  branchAuthors: Record<number, string[]>;
 }
 
 /** decide() 產出的動作。後面的票往這個 union 加種類。 */
-export type Action = { kind: "pickup"; issue: Issue };
+export type Action =
+  | { kind: "pickup"; issue: Issue }
+  /** 重接時 agent/<N> 上有人手做的 commit：不碰 branch，留言請人決定 */
+  | { kind: "ask-about-foreign-commits"; issue: Issue; authors: string[] };

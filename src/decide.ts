@@ -29,9 +29,20 @@ const PICK_RULES: PickRule[] = [
 ];
 
 export function decide(snapshot: Snapshot, now: Date): Action[] {
-  return snapshot.candidates
+  const eligible = snapshot.candidates
     .filter((issue) => PICK_RULES.every((rule) => rule(issue, snapshot, now)))
-    .sort((a, b) => a.number - b.number)
+    .sort((a, b) => a.number - b.number);
+  const foreignAuthors = (issue: Issue) => [
+    ...new Set((snapshot.branchAuthors[issue.number] ?? []).filter((a) => a !== snapshot.runnerAuthor)),
+  ];
+
+  // 問人不佔每輪的名額（不跑 sandbox）
+  const asks: Action[] = eligible
+    .filter((issue) => foreignAuthors(issue).length > 0)
+    .map((issue) => ({ kind: "ask-about-foreign-commits", issue, authors: foreignAuthors(issue) }));
+  const pickups: Action[] = eligible
+    .filter((issue) => foreignAuthors(issue).length === 0)
     .slice(0, snapshot.maxPerRound)
     .map((issue) => ({ kind: "pickup", issue }));
+  return [...asks, ...pickups];
 }
