@@ -3,7 +3,8 @@
 沒人在場的時候，把 GitHub 上寫清楚、貼了 `ready-for-agent` 的 issue 一張一張丟進 Docker sandbox 讓 Claude Code 實作，
 做完從 `agent/<N>` 開一張 draft PR，再發一則 Slack 告訴操作者結果。sandbox 用的是 [sandcastle](https://github.com/mattpocock/sandcastle)。
 
-操作者下班前 `agent-runner on`，runner 每 60 分鐘跑一輪；平日早上 08:00（Asia/Taipei）自己關掉，早上看 Slack 和 draft PR 就知道昨晚做了什麼。
+操作者下班前 `agent-runner on`，runner 每隔一段時間跑一輪，到隔天上班前的設定時間自己關掉；早上看 Slack 和 draft PR 就知道昨晚做了什麼。
+文件裡出現的 `roundIntervalMinutes` 這類名字都是 `src/config.ts` 的設定，值看那裡，見[設定](#設定)。
 
 ```mermaid
 flowchart LR
@@ -18,8 +19,8 @@ flowchart LR
 
 | 決定 | 原因 |
 | --- | --- |
-| 開關只能手動打開，平日 08:00 自動關 | runner 不會自己開始做事；上班時間不跟人搶機器和 Claude 額度 |
-| 一次只做一張，每張最多 60 分鐘，一輪最多 2 張 | 成本有上限；卡住的 agent 不會燒一整晚 |
+| 開關只能手動打開，到 `autoOff` 的時間自動關 | runner 不會自己開始做事；上班時間不跟人搶機器和 Claude 額度 |
+| 一次只做一張，每張最多 `timeoutMinutes`，一輪最多 `maxPerRound` 張 | 成本有上限；卡住的 agent 不會燒一整晚 |
 | agent 在 Docker sandbox 裡跑，sandbox 裡**沒有** GitHub token | agent 碰不到 GitHub；push 和開 PR 都由 host 上的 runner 做 |
 | 開 **draft** PR，不指定 reviewer | 什麼時候轉 ready、找誰 review 由人決定 |
 | 失敗不自動重試 | 壞掉的單不會一直重複燒額度；要重試就由人補完單子、貼回 label |
@@ -40,17 +41,17 @@ flowchart TD
   S --> D["decide()：決定這一輪要做的動作"]
   D --> A1["殘留的 agent-in-progress<br/>照 crash 收尾"]
   D --> A2["agent/N 上有人手做的 commit<br/>停手、留言問人"]
-  D --> A3["接單：一次一張，最多 2 張"]
+  D --> A3["接單：一次一張<br/>最多 maxPerRound 張"]
 ```
 
 `decide()`（`src/decide.ts`）是純函式：吃這一輪看到的 issue、label、branch 狀態和現在時間，吐出動作清單，不碰任何外部。
 挑單規則全在這裡：
 
-- 開單的人是操作者，帶 `ready-for-agent`，沒有 assignee，沒有被 block
+- 開單的人是 `operator`，帶 `ready-for-agent`，符合 `pickSearch`（目前是沒有 assignee、沒有被 block）
 - 不帶 `wayfinder:*` label（那是規劃票，不是給 agent 做的）
 - 沒有 sub-issue（母單是拆給子單做的）
 - 有 parent 的話，parent 要帶 `wayfinder:map`（掛在 spec 底下的子單由 spec 自己推進）
-- 離下一次自動關不到 60 分鐘就不接（不然明知會在 08:00 被砍成 crash）
+- 離下一次自動關不到 `timeoutMinutes` 就不接（不然明知會在自動關時被砍成 crash）
 - 照 issue 編號由小到大
 
 每接一張之前還會再確認一次開關還開著、時間還夠；做完一張才接下一張。
@@ -59,7 +60,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  P["接單：拿掉 ready-for-agent<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到 origin/dev"]
+  P["接單：拿掉 ready-for-agent<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到<br/>origin/baseBranch"]
   R --> IM["實作 run<br/>（sandbox，乾淨 context）"]
   IM -- "單子不清楚" --> NI["❓ needs-info"]
   IM --> RV["reviewer run<br/>（sandbox，另一個乾淨 context）<br/>跑 code-review、可以直接修、再跑一次檢查"]
@@ -73,7 +74,7 @@ flowchart TD
   RV -. "timeout / crash / off --now" .-> CR
 ```
 
-實作 run 和 reviewer run 共用一個 60 分鐘的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
+實作 run 和 reviewer run 共用一個 `timeoutMinutes` 的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
 目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），所以 agent 要自己跑這些檢查。
 
 ### 五種結局
@@ -112,7 +113,7 @@ stateDiagram-v2
 
 重試只有一條路：補完單子、手動貼回 `ready-for-agent`。
 
-- `agent/<N>` 已經存在時，runner 沿用這條 branch 和它還開著的 PR：從 `origin/dev` 重做、`--force-with-lease`，更新 PR 標題與 body（全過就拿掉 `[WIP]`）。討論都留在同一張 PR。
+- `agent/<N>` 已經存在時，runner 沿用這條 branch 和它還開著的 PR：從 `origin/<baseBranch>` 重做、`--force-with-lease`，更新 PR 標題與 body（全過就拿掉 `[WIP]`）。討論都留在同一張 PR。
 - PR 已經被轉 ready：先退回 draft 再 push，不然 force push 會觸發一整次 CI。
 - branch 上有 author 不是 runner 的 commit：runner 停手，留言請人決定，並拿掉 `ready-for-agent`（不然每一輪都會再問一次）。要 runner 重做就刪掉遠端 branch 再貼回。
 - 全過的單 assignee 還是操作者，而挑單條件要求沒有 assignee，所以要重做全過的單要先拿掉 assignee 再貼回 `ready-for-agent`。
@@ -124,10 +125,10 @@ flowchart LR
   subgraph host["host（操作者的 unix user）"]
     direction TB
     RUN["agent-runner<br/>~/agents/agent-runner"]
-    SEC["~/.config/agent-runner/env<br/>（chmod 600）"]
-    CL["bot clone<br/>~/agents/&lt;repo&gt;"]
+    SEC["secret 檔 secretsFile<br/>（chmod 600）"]
+    CL["bot clone<br/>botClonePath"]
     GH["gh（操作者的登入）"]
-    ST["pnpm store<br/>~/agents/pnpm-store"]
+    ST["pnpm store<br/>pnpmStorePath"]
   end
   subgraph sb["Docker sandbox（每張單一個 container）"]
     direction TB
@@ -156,11 +157,11 @@ image tag 是 `hash(Dockerfile + 目標 repo 的 .nvmrc)`：目標 repo 升 Node
 stateDiagram-v2
   direction LR
   off: 關
-  on: 開（每 60 分鐘一輪）
+  on: 開（每 roundIntervalMinutes 一輪）
   off --> on: agent-runner on（立刻先跑一輪）
   on --> off: agent-runner off（正在做的那張做完）
   on --> off: agent-runner off --now（立刻停，照 crash 收尾）
-  on --> off: 平日 08:00 自動關（同 off）
+  on --> off: 到 autoOff 的時間自動關（同 off）
 ```
 
 開關就是 systemd user timer `agent-runner.timer` 有沒有在跑。timer 沒有 `[Install]`，開機不會自己打開。
@@ -185,7 +186,7 @@ runner 只透過 `update` 更新：推到這個 public repo 的東西不會下�
 ### runner 自己壞掉時
 
 `agent-runner.service` 失敗（包括 3 小時上限到、`off --now` 等太久被硬殺）→ `agent-runner-failure.service` 發一則 Slack，附 `journalctl` 最後 20 行。
-同一原因一晚（到下一次自動關為止）只發一次，記錄在 `~/.local/state/agent-runner/failure-notified.json`。
+同一原因一晚（到下一次自動關為止）只發一次，記錄在 `<stateDir>/failure-notified.json`。
 
 ## 安裝
 
@@ -208,7 +209,7 @@ flowchart LR
   F --> G["agent-runner<br/>連到 ~/.local/bin"]
 ```
 
-secret 檔 `~/.config/agent-runner/env`（`chmod 600`，不進 repo）：
+secret 檔（`secretsFile`，`chmod 600`，不進 repo）：
 
 ```bash
 CLAUDE_CODE_OAUTH_TOKEN=          # 操作者跑 `claude setup-token` 拿到的
@@ -227,8 +228,24 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 
 ## 設定
 
-全部在 `src/config.ts`：目標 repo、操作者、挑單條件、每輪張數、輪次間隔、base branch、bot clone 路徑、`.nvmrc` 路徑、`/tdd` skill 路徑、
-runner 的 git author、每張 timeout、自動關時間、model、image 名稱、pnpm store、env 檔路徑。要換目標 repo、放寬挑單、換身分都改這裡，不改程式。
+全部在 `src/config.ts`，值只寫在那裡，這份文件只用名字指它們。要換目標 repo、放寬挑單、換身分、改時間都改這裡，不改程式。
+
+| 設定 | 管什麼 |
+| --- | --- |
+| `repo` | 目標 repo |
+| `operator` | 操作者：只挑他開的單，PR／issue 的 assignee |
+| `pickSearch` | 挑單的額外搜尋條件 |
+| `maxPerRound` | 一輪最多接幾張 |
+| `roundIntervalMinutes` | 打開之後每隔多久一輪 |
+| `timeoutMinutes` | 每張單的上限（實作＋review 一起算）；離自動關不到這麼久就不接新單 |
+| `autoOff` | 自動關的星期、時間、時區；也是「同一原因一晚只通知一次」的一晚的結尾 |
+| `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點 |
+| `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
+| `model` | sandbox 裡 Claude Code 用的 model |
+| `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` `repoEnvPath` | 各種 host 路徑 |
+| `nvmrcPath` `tddSkillPath` `imageName` | image 與 sandbox 掛載 |
+
+改了 `roundIntervalMinutes` 或 `autoOff`，要下一次 `agent-runner on`（或 `update`）才會寫進 systemd timer。
 
 目前是第一階段：操作者和開單的人是同一個人，只挑自己開的單，先把流程跑順。
 
