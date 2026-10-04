@@ -76,8 +76,11 @@ cmd_off() {
 cmd_status() {
   local switch=off current=-
   user_ctl is-active --quiet "$TIMER" && switch=on
-  # service 沒在跑時 current 可能是被砍掉那輪留下的，不算數
-  if user_ctl is-active --quiet "$SERVICE"; then
+  # service 沒在跑時 current 可能是被砍掉那輪留下的，不算數。
+  # service 是 Type=oneshot：一輪跑的整段時間都是 activating，不會是 active（is-active 只認 active）
+  local state
+  state="$(user_ctl show -p ActiveState --value "$SERVICE")"
+  if [ "$state" = activating ] || [ "$state" = active ]; then
     current="$(cat "$STATE_DIR/current" 2>/dev/null || echo "（挑單中）")"
   fi
   echo "開關：      $switch"
