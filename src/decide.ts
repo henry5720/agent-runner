@@ -20,6 +20,9 @@ const PICK_RULES: PickRule[] = [
   (issue) => issue.parentNumber === null || issue.parentLabels.includes(WAYFINDER_MAP_LABEL),
   // 母單（含 spec 本身）是拆給子單做的
   (issue) => issue.subIssueCount === 0,
+  // 下面兩條 pickSearch 已經擋了；設定改了也不會接到別人手上或被擋住的單
+  (issue) => issue.assignees.length === 0,
+  (issue) => issue.openBlockerCount === 0,
 ];
 
 export function decide(snapshot: Snapshot, now: Date): Action[] {

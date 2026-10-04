@@ -49,6 +49,7 @@ describe("github adapter against recorded gh output", () => {
         parentNumber: null,
         parentLabels: [],
         subIssueCount: 12,
+        openBlockerCount: 0,
       },
       {
         number: 2456,
@@ -60,6 +61,7 @@ describe("github adapter against recorded gh output", () => {
         parentNumber: 2283,
         parentLabels: ["wayfinder:map"],
         subIssueCount: 6,
+        openBlockerCount: 0,
       },
       {
         number: 2326,
@@ -71,14 +73,15 @@ describe("github adapter against recorded gh output", () => {
         parentNumber: null,
         parentLabels: [],
         subIssueCount: 0,
+        openBlockerCount: 0,
       },
     ]);
   });
 
   it("looks up each distinct parent's labels once, in the configured repo", async () => {
     const list = JSON.stringify([
-      { number: 11, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 } },
-      { number: 12, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 } },
+      { number: 11, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
+      { number: 12, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
     ]);
     const { github, calls } = withFakeGh([
       { match: ["issue", "list"], stdout: list },
@@ -91,6 +94,28 @@ describe("github adapter against recorded gh output", () => {
     expect({ views: views.map((c) => c.argv), labels: issues.map((i) => i.parentLabels) }).toEqual({
       views: [["issue", "view", "5", "-R", "acme/widgets", "--json", "labels"]],
       labels: [["wayfinder:map"], ["wayfinder:map"]],
+    });
+  });
+
+  it("counts only open blockers, via the REST issue's issue_dependencies_summary", async () => {
+    const list = JSON.stringify([
+      { number: 2699, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 1 } },
+      { number: 3000, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
+    ]);
+    const { github, calls } = withFakeGh([
+      { match: ["issue", "list"], stdout: list },
+      { match: ["api", "repos/acme/widgets/issues/2699"], stdout: fixture("rest-issue-blocked.trimmed.json") },
+    ]);
+
+    const issues = await github.listCandidates();
+
+    expect({
+      counts: issues.map((i) => [i.number, i.openBlockerCount]),
+      apiCalls: calls().filter((c) => c.argv[0] === "api").map((c) => c.argv),
+    }).toEqual({
+      counts: [[2699, 1], [3000, 0]],
+      // blockedBy 一張都沒有（含已關的）就不用查
+      apiCalls: [["api", "repos/acme/widgets/issues/2699"]],
     });
   });
 

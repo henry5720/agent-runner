@@ -48,6 +48,16 @@ describe("decide", () => {
       candidates: [issue({ number: 10, subIssueCount: 12 })],
       picked: [],
     },
+    {
+      name: "skips issues already assigned to someone",
+      candidates: [issue({ number: 10, assignees: ["someone-else"] })],
+      picked: [],
+    },
+    {
+      name: "skips issues with an open blocker",
+      candidates: [issue({ number: 10, openBlockerCount: 1 })],
+      picked: [],
+    },
   ])("$name", ({ candidates, picked }) => {
     expect(pickedNumbers("henry5720", candidates)).toEqual(picked);
   });

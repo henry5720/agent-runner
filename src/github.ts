@@ -18,12 +18,16 @@ interface GhIssue {
   assignees: { login: string }[];
   parent: { number: number } | null;
   subIssuesSummary: { total: number };
+  /** 含已關的 blocker，只拿來判斷要不要再查 open 的數量 */
+  blockedBy: { totalCount: number };
 }
 
-const ISSUE_FIELDS = "number,title,body,labels,assignees,author,parent,subIssuesSummary";
+const ISSUE_FIELDS = "number,title,body,labels,assignees,author,parent,subIssuesSummary,blockedBy";
 
-/** parent 的 labels 不在 list 輸出裡，listCandidates() 另外查 */
-export function parseIssues(json: string): Omit<Issue, "parentLabels">[] {
+type ListedIssue = Omit<Issue, "parentLabels" | "openBlockerCount"> & { blockerCount: number };
+
+/** parent 的 labels 與 open blocker 數不在 list 輸出裡，listCandidates() 另外查 */
+export function parseIssues(json: string): ListedIssue[] {
   return (JSON.parse(json) as GhIssue[]).map((i) => ({
     number: i.number,
     title: i.title,
@@ -33,6 +37,7 @@ export function parseIssues(json: string): Omit<Issue, "parentLabels">[] {
     assignees: i.assignees.map((a) => a.login),
     parentNumber: i.parent?.number ?? null,
     subIssueCount: i.subIssuesSummary.total,
+    blockerCount: i.blockedBy.totalCount,
   }));
 }
 
@@ -53,6 +58,11 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
   async function labelsOf(issue: number): Promise<string[]> {
     const stdout = await gh(["issue", "view", String(issue), "-R", repo, "--json", "labels"]);
     return (JSON.parse(stdout) as { labels: { name: string }[] }).labels.map((l) => l.name);
+  }
+
+  async function openBlockerCountOf(issue: number): Promise<number> {
+    const stdout = await gh(["api", `repos/${repo}/issues/${issue}`]);
+    return (JSON.parse(stdout) as { issue_dependencies_summary: { blocked_by: number } }).issue_dependencies_summary.blocked_by;
   }
 
   /** body 有反引號、多行，一律走 --body-file */
@@ -79,7 +89,13 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       // decide() 要知道 parent 是不是 wayfinder:map；同一個 parent 只查一次
       const parents = [...new Set(issues.flatMap((i) => (i.parentNumber === null ? [] : [i.parentNumber])))];
       const parentLabels = new Map(await Promise.all(parents.map(async (n) => [n, await labelsOf(n)] as const)));
-      return issues.map((i) => ({ ...i, parentLabels: i.parentNumber === null ? [] : (parentLabels.get(i.parentNumber) ?? []) }));
+      // blockedBy 含已關的 blocker；有的才用 REST 的 issue_dependencies_summary.blocked_by 查 open 的數量
+      const openBlockers = await Promise.all(issues.map((i) => (i.blockerCount === 0 ? 0 : openBlockerCountOf(i.number))));
+      return issues.map(({ blockerCount: _b, ...i }, at) => ({
+        ...i,
+        parentLabels: i.parentNumber === null ? [] : (parentLabels.get(i.parentNumber) ?? []),
+        openBlockerCount: openBlockers[at] ?? 0,
+      }));
     },
     async createLabel(name, { color, description }) {
       await gh(["label", "create", name, "-R", repo, "--color", color, "--description", description, "--force"]);

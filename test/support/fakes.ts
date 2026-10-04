@@ -18,6 +18,7 @@ export function issue(overrides: Partial<Issue> & { number: number }): Issue {
     parentNumber: null,
     parentLabels: [],
     subIssueCount: 0,
+    openBlockerCount: 0,
     ...overrides,
   };
 }

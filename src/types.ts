@@ -11,6 +11,8 @@ export interface Issue {
   /** parent 的 labels；沒有 parent → [] */
   parentLabels: string[];
   subIssueCount: number;
+  /** 還沒關的 blocker 數（已關的不算） */
+  openBlockerCount: number;
 }
 
 /** 這一輪看到的世界。後面的票（殘留 agent-in-progress、agent/<N> 狀態、既有 PR…）往這裡加欄位。 */
