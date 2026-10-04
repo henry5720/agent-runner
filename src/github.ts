@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { IN_PROGRESS_LABEL, READY_LABEL } from "./names.js";
 import type { GitHub, NewPr } from "./ports.js";
 import type { Issue } from "./types.js";
 
@@ -82,7 +83,7 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       // gh 預設 --limit 30、新到舊；順序交給 decide()
       const stdout = await gh([
         "issue", "list", "-R", repo,
-        "--author", "@me", "--label", "ready-for-agent", "--state", "open",
+        "--author", "@me", "--label", READY_LABEL, "--state", "open",
         "--search", pickSearch, "--limit", "200", "--json", ISSUE_FIELDS,
       ]);
       const issues = parseIssues(stdout);
@@ -100,12 +101,17 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
     async listInProgress() {
       const stdout = await gh([
         "issue", "list", "-R", repo,
-        "--label", "agent-in-progress", "--state", "open", "--limit", "200", "--json", ISSUE_FIELDS,
+        "--label", IN_PROGRESS_LABEL, "--state", "open", "--limit", "200", "--json", ISSUE_FIELDS,
       ]);
       return parseIssues(stdout);
     },
     async createLabel(name, { color, description }) {
-      await gh(["label", "create", name, "-R", repo, "--color", color, "--description", description, "--force"]);
+      // 不帶 --force：已經有就不動（人可能改過顏色或說明）。gh 對已存在的 label 回 exit 1 + "already exists"
+      try {
+        await gh(["label", "create", name, "-R", repo, "--color", color, "--description", description]);
+      } catch (err) {
+        if (!/already exists/.test((err as Error).message)) throw err;
+      }
     },
     async addLabel(issue, label) {
       await gh(["issue", "edit", String(issue), "-R", repo, "--add-label", label]);

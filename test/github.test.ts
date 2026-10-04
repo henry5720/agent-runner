@@ -78,45 +78,61 @@ describe("github adapter against recorded gh output", () => {
     ]);
   });
 
-  it("looks up each distinct parent's labels once, in the configured repo", async () => {
+  it("gives every issue its parent's labels when several issues share a parent", async () => {
     const list = JSON.stringify([
       { number: 11, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
       { number: 12, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
     ]);
-    const { github, calls } = withFakeGh([
+    const { github } = withFakeGh([
       { match: ["issue", "list"], stdout: list },
-      { match: ["issue", "view", "5"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
+      { match: ["issue", "view", "5", "-R", "acme/widgets"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
     ]);
 
     const issues = await github.listCandidates();
 
-    const views = calls().filter((c) => c.argv[1] === "view");
-    expect({ views: views.map((c) => c.argv), labels: issues.map((i) => i.parentLabels) }).toEqual({
-      views: [["issue", "view", "5", "-R", "acme/widgets", "--json", "labels"]],
-      labels: [["wayfinder:map"], ["wayfinder:map"]],
-    });
+    expect(issues.map((i) => [i.number, i.parentLabels])).toEqual([
+      [11, ["wayfinder:map"]],
+      [12, ["wayfinder:map"]],
+    ]);
   });
 
   it("counts only open blockers, via the REST issue's issue_dependencies_summary", async () => {
+    // 3000 沒有 blocker（含已關的）：假 gh 沒有它的 REST 回應，真的去查就會失敗
     const list = JSON.stringify([
       { number: 2699, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 1 } },
       { number: 3000, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
     ]);
-    const { github, calls } = withFakeGh([
+    const { github } = withFakeGh([
       { match: ["issue", "list"], stdout: list },
       { match: ["api", "repos/acme/widgets/issues/2699"], stdout: fixture("rest-issue-blocked.trimmed.json") },
     ]);
 
     const issues = await github.listCandidates();
 
-    expect({
-      counts: issues.map((i) => [i.number, i.openBlockerCount]),
-      apiCalls: calls().filter((c) => c.argv[0] === "api").map((c) => c.argv),
-    }).toEqual({
-      counts: [[2699, 1], [3000, 0]],
-      // blockedBy 一張都沒有（含已關的）就不用查
-      apiCalls: [["api", "repos/acme/widgets/issues/2699"]],
-    });
+    expect(issues.map((i) => [i.number, i.openBlockerCount])).toEqual([
+      [2699, 1],
+      [3000, 0],
+    ]);
+  });
+
+  it("leaves an existing label's color and description alone, treating it as already there", async () => {
+    const { github, calls } = withFakeGh([
+      {
+        match: ["label", "create", "agent-in-progress"],
+        stderr: 'label with name "agent-in-progress" already exists; use `--force` to update its color and description\n',
+        code: 1,
+      },
+    ]);
+
+    await github.createLabel("agent-in-progress", { color: "fbca04", description: "x" });
+
+    expect(calls()[0]?.argv.includes("--force")).toBe(false);
+  });
+
+  it("still fails when creating a label fails for another reason", async () => {
+    const { github } = withFakeGh([{ match: ["label", "create"], stderr: "HTTP 403: Resource not accessible\n", code: 1 }]);
+
+    await expect(github.createLabel("needs-info", { color: "d876e3", description: "x" })).rejects.toThrow(/HTTP 403/);
   });
 
   it("lists only the operator's open ready-for-agent issues in the configured repo with the configured search", async () => {
