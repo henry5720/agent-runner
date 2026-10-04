@@ -12,6 +12,15 @@ npm test            # unit test（不連網）
 npm run typecheck
 ```
 
+開關（systemd user units；連結 units 與 CLI 由 `install.sh` 負責，ShuChenAI/teamsync-frontend#2703）：
+
+```bash
+agent-runner on          # 立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
+agent-runner off         # 正在做的那張做完就停
+agent-runner off --now   # 立刻停，下一輪照 crash 收尾
+agent-runner status      # 開關、下次觸發、目前在跑哪張、runner commit
+```
+
 ## 結構
 
 | 檔案 | 做什麼 |
@@ -21,6 +30,10 @@ npm run typecheck
 | `src/runRound.ts` | 一輪的流程，邊界全部從 `deps` 注入 |
 | `src/ports.ts` | `github`／`git`／`sandbox`／`notifier`／`clock` 的介面 |
 | `src/github.ts` `src/git.ts` `src/sandbox.ts` `src/notifier.ts` `src/clock.ts` | 真的實作（`gh`、bot clone、sandcastle＋docker、通知、時間） |
+| `src/autoOff.ts` | 下一次自動關的時間（`decide` 用它判斷「剩不到一個 timeout 就不接」） |
+| `src/lock.ts` `src/runState.ts` `src/power.ts` | `flock -n` 輪次鎖、`~/.local/state/agent-runner/current`（給 `status`）、開關＝`agent-runner.timer` 有沒有在跑 |
+| `bin/agent-runner` | CLI（bash 薄殼，`systemctl --user`） |
+| `systemd/` | `agent-runner.service`／`.timer`、`agent-runner-autooff.timer`／`.service` |
 | `src/image.ts` | image tag = hash(Dockerfile + 目標 repo 的 `.nvmrc`) |
 | `src/prBody.ts` `src/result.ts` | PR body、agent 回報的結構化結果 schema |
 | `prompts/implement.md` | 實作 prompt（只指向目標 repo 的 `CLAUDE.md` 和 skills） |

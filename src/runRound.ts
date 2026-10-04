@@ -9,23 +9,43 @@ export const IN_PROGRESS_LABEL = "agent-in-progress";
 const READY_LABEL = "ready-for-agent";
 
 /**
- * 一輪：fetch → 確認 image → 列候選 → decide() → 一次一張處理。
+ * 一輪：拿鎖（拿不到就結束）→ fetch → 確認 image → 列候選 → decide() → 一次一張處理。
  * 這張票只有全過的 happy path；檢查、reviewer、失敗收尾、Slack、flock、上限在後面的票加。
  */
 export async function runRound(config: Config, deps: Deps): Promise<void> {
-  const { github, git, sandbox, clock } = deps;
+  const release = await deps.lock.tryAcquire();
+  if (!release) return;
+  try {
+    await runLockedRound(config, deps);
+  } finally {
+    await release();
+  }
+}
+
+async function runLockedRound(config: Config, deps: Deps): Promise<void> {
+  const { github, git, clock } = deps;
   const baseRef = `origin/${config.baseBranch}`;
 
   await git.fetch();
   const tag = await ensureImage(config, deps, baseRef);
 
   const candidates = await github.listCandidates();
-  const actions = decide({ operator: config.operator, candidates }, clock.now());
+  const snapshot = { operator: config.operator, candidates, autoOff: config.autoOff, timeoutMinutes: config.timeoutMinutes };
+  const actions = decide(snapshot, clock.now());
 
   for (const action of actions) {
     switch (action.kind) {
       case "pickup":
-        await handleIssue(config, deps, action.issue, { tag, baseRef });
+        // 關掉（手動 off 或 08:00 自動關）之後不接新單；正在做的那張已經做完了
+        if (!(await deps.power.isOn())) return;
+        // 前一張做完時間已經過了，再問一次 decide（例如已經進入自動關前的最後一個 timeout）
+        if (!decide({ ...snapshot, candidates: [action.issue] }, clock.now()).length) return;
+        await deps.runState.setCurrent({ number: action.issue.number, title: action.issue.title });
+        try {
+          await handleIssue(config, deps, action.issue, { tag, baseRef });
+        } finally {
+          await deps.runState.setCurrent(null);
+        }
         break;
     }
   }

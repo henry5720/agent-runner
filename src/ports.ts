@@ -64,10 +64,34 @@ export interface Clock {
   now(): Date;
 }
 
+/** 擋重疊的輪次（真的實作是 `flock -n`） */
+export interface Lock {
+  /** 拿到 → 回傳 release；別人拿著 → null（不等） */
+  tryAcquire(): Promise<(() => Promise<void>) | null>;
+}
+
+export interface RunningIssue {
+  number: number;
+  title: string;
+}
+
+/** 「目前在跑哪張」，給 `agent-runner status` 看 */
+export interface RunState {
+  setCurrent(issue: RunningIssue | null): Promise<void>;
+}
+
+/** 開關（`agent-runner on`／`off`、08:00 自動關）。關掉之後正在做的那張做完，不再接下一張 */
+export interface Power {
+  isOn(): Promise<boolean>;
+}
+
 export interface Deps {
   github: GitHub;
   git: Git;
   sandbox: Sandbox;
   notifier: Notifier;
   clock: Clock;
+  lock: Lock;
+  runState: RunState;
+  power: Power;
 }

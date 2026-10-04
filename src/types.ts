@@ -11,10 +11,15 @@ export interface Issue {
   subIssueCount: number;
 }
 
+import type { AutoOffSchedule } from "./autoOff.js";
+
 /** 這一輪看到的世界。後面的票（殘留 agent-in-progress、agent/<N> 狀態、既有 PR…）往這裡加欄位。 */
 export interface Snapshot {
   operator: string;
   candidates: Issue[];
+  /** 自動關時間；距離它不到一個 timeout 就不接新單 */
+  autoOff: AutoOffSchedule;
+  timeoutMinutes: number;
 }
 
 /** decide() 產出的動作。後面的票往這個 union 加種類。 */

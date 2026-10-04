@@ -1,0 +1,13 @@
+# 跑一輪（挑單 → sandbox → draft PR）。由 agent-runner.timer 叫，不要 enable。
+# 失敗通知（OnFailure=agent-runner-failure.service）在 #2703 加。
+[Unit]
+Description=agent-runner: one round
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/agents/agent-runner
+ExecStart=%h/agents/agent-runner/bin/agent-runner round
+# 開關看 agent-runner.timer：off／自動關之後，正在做的那張做完就不接下一張
+Environment=AGENT_RUNNER_FOLLOW_TIMER=1
+# 每張 60 分鐘、一輪最多 2 張，再留建 image 的時間；只是最後防線
+TimeoutStartSec=3h

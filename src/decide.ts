@@ -1,3 +1,4 @@
+import { nextAutoOff } from "./autoOff.js";
 import type { Action, Issue, Snapshot } from "./types.js";
 
 export const READY_LABEL = "ready-for-agent";
@@ -13,6 +14,8 @@ type PickRule = (issue: Issue, snapshot: Snapshot, now: Date) => boolean;
 const PICK_RULES: PickRule[] = [
   (issue, snapshot) => issue.author === snapshot.operator,
   (issue) => issue.labels.includes(READY_LABEL),
+  // 會在自動關時被砍成 crash 的單不接：剩下的時間要夠一整個 timeout
+  (_issue, snapshot, now) => nextAutoOff(snapshot.autoOff, now).getTime() - now.getTime() >= snapshot.timeoutMinutes * 60_000,
 ];
 
 export function decide(snapshot: Snapshot, now: Date): Action[] {

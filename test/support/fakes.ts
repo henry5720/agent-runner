@@ -3,7 +3,7 @@
  * 測試只看最終狀態（issue 的 label／留言、PR、branch、Slack 訊息），不看呼叫次數或順序。
  */
 import type { Config } from "../../src/config.js";
-import type { Clock, Deps, Git, GitHub, ImplementRequest, NewPr, Notifier, Sandbox } from "../../src/ports.js";
+import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox } from "../../src/ports.js";
 import type { ImplementResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
@@ -43,6 +43,8 @@ export const testConfig: Config = {
   tddSkillPath: "/skills/tdd",
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
+  autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
+  stateDir: "/state",
   model: "test-model",
   imageName: "sandcastle-test",
   pnpmStorePath: "/store",
@@ -173,6 +175,36 @@ export class FakeClock implements Clock {
   }
 }
 
+/** 另一輪拿著鎖 → `heldByOther = true` */
+export class FakeLock implements Lock {
+  heldByOther = false;
+  held = false;
+
+  async tryAcquire() {
+    if (this.heldByOther || this.held) return null;
+    this.held = true;
+    return async () => {
+      this.held = false;
+    };
+  }
+}
+
+export class FakeRunState implements RunState {
+  current: RunningIssue | null = null;
+
+  async setCurrent(issue: RunningIssue | null) {
+    this.current = issue;
+  }
+}
+
+export class FakePower implements Power {
+  on = true;
+
+  async isOn() {
+    return this.on;
+  }
+}
+
 export function fakeDeps(opts: {
   issues: Issue[];
   results: Record<number, ImplementResult>;
@@ -187,5 +219,8 @@ export function fakeDeps(opts: {
     sandbox: new FakeSandbox(opts.results, opts.images),
     notifier: new FakeNotifier(),
     clock: new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z")),
+    lock: new FakeLock(),
+    runState: new FakeRunState(),
+    power: new FakePower(),
   } satisfies Deps;
 }
