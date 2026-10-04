@@ -31,10 +31,18 @@ USAGE
 user_ctl() { systemctl --user "$@"; }
 
 # 下次觸發時間；timer 沒在跑就是 -
+# 從 list-timers 拿：agent-runner.timer 用 OnUnitActiveSec（單調時鐘），NextElapseUSecRealtime 永遠是空的
 next_elapse() {
   local next
-  next="$(user_ctl show "$1" -p NextElapseUSecRealtime --value 2>/dev/null || true)"
+  next="$(user_ctl list-timers --all --no-legend --no-pager "$1" 2>/dev/null | awk '$1 != "-" && $1 != "n/a" { print $1, $2, $3, $4 }')"
   echo "${next:--}"
+}
+
+# 一輪正在跑嗎。service 是 Type=oneshot：跑的整段時間是 activating，`is-active` 只認 active
+round_running() {
+  local state
+  state="$(user_ctl show -p ActiveState --value "$SERVICE")"
+  [ "$state" = activating ] || [ "$state" = active ]
 }
 
 # timer 的間隔與自動關時間從 src/config.ts 寫成 drop-in（src/systemd.ts），改了設定下次 on 就生效
@@ -46,6 +54,9 @@ write_timer_dropins() {
 cmd_on() {
   write_timer_dropins
   user_ctl start "$AUTOOFF_TIMER" "$TIMER"
+  # 打開就先跑一輪；timer 從這一輪開始算 OnUnitActiveSec。不用 timer 的 OnActiveSec=0 ——
+  # 那個每次 daemon-reload（update、改設定）都會再觸發一輪
+  round_running || user_ctl start --no-block "$SERVICE"
   echo "on：下一輪 $(next_elapse "$TIMER")，自動關 $(next_elapse "$AUTOOFF_TIMER")"
 }
 
@@ -53,7 +64,7 @@ cmd_off() {
   case "${1:-}" in
     "")
       user_ctl stop "$TIMER"
-      if user_ctl is-active --quiet "$SERVICE"; then
+      if round_running; then
         echo "off：正在做的那張做完就停"
       else
         echo "off"
@@ -76,11 +87,8 @@ cmd_off() {
 cmd_status() {
   local switch=off current=-
   user_ctl is-active --quiet "$TIMER" && switch=on
-  # service 沒在跑時 current 可能是被砍掉那輪留下的，不算數。
-  # service 是 Type=oneshot：一輪跑的整段時間都是 activating，不會是 active（is-active 只認 active）
-  local state
-  state="$(user_ctl show -p ActiveState --value "$SERVICE")"
-  if [ "$state" = activating ] || [ "$state" = active ]; then
+  # service 沒在跑時 current 可能是被砍掉那輪留下的，不算數
+  if round_running; then
     current="$(cat "$STATE_DIR/current" 2>/dev/null || echo "（挑單中）")"
   fi
   echo "開關：      $switch"
