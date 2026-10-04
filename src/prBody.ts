@@ -6,7 +6,7 @@ const list = (items: string[]) => items.map((i) => `- ${i}`).join("\n");
 const commands = (v: Verification) => list(v.map((c) => `\`${c.command}\` → ${c.result}`));
 
 /**
- * PR body 固定四段（spec user story 29）＋ Claude Code 署名。
+ * PR body 固定四段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
  * `[WIP]` 多一段「沒過的檢查」（以 review 後那次為準）。依賴變動放在變更摘要裡；驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查。
  */
 export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult): string {

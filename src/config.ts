@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { AutoOffSchedule } from "./autoOff.js";
 
 /**
- * runner 的全部設定都在這一個檔。第一階段的值見 spec #2692「第一階段設定值」。
+ * runner 的全部設定都在這一個檔。目前的值是第一階段：只挑操作者自己開的單，先把流程跑順。
  * 要放寬挑單、換目標 repo、換身分 → 改這裡，不改程式。
  * secret 不在這裡：`CLAUDE_CODE_OAUTH_TOKEN` 等放 `secretsFile`（chmod 600）。
  */

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # agent-runner 的開關。薄殼：底下是 systemctl --user，邏輯都在 src/。
-# install.sh（#2703）把它連到 ~/.local/bin。
+# install.sh 把它連到 ~/.local/bin。
 set -euo pipefail
 
 RUNNER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
