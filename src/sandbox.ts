@@ -18,6 +18,14 @@ const DOCKERFILE = fileURLToPath(new URL("../Dockerfile", import.meta.url));
 const IMPLEMENT_PROMPT = fileURLToPath(new URL("../prompts/implement.md", import.meta.url));
 const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.url));
 
+/**
+ * sandbox 裡 pnpm store 的位置（host 的 config.pnpmStorePath 掛在這裡）。
+ * 要用 `npm_config_store_dir` 明講：掛進來的目錄跟 worktree 不在同一個 filesystem，
+ * pnpm 預設會在 worktree 那邊自己開一個 `.pnpm-store/`（第一次真機驗收量到 1.7G），
+ * 掛進來的 store 等於沒用，worktree 也永遠 dirty。
+ */
+const SANDBOX_PNPM_STORE = "/home/agent/.local/share/pnpm/store";
+
 /** 同一個 hook 點的多個 command 會平行跑，所以 install 和 chromium 串成一條。 */
 const SETUP_COMMAND = "cd frontend && timeout 300 pnpm install --frozen-lockfile && pnpm exec playwright install chromium";
 
@@ -45,7 +53,7 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
   /** 實作 run 與 reviewer run 共用的 run() 參數；只差 prompt 和回報的 schema */
   function runAgent<S extends StandardSchemaV1>({ imageTag, issue, branch, baseRef, signal }: ImplementRequest, promptFile: string, schema: S) {
     const mounts = [
-      { hostPath: config.pnpmStorePath, sandboxPath: "~/.local/share/pnpm/store" },
+      { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
       { hostPath: config.tddSkillPath, sandboxPath: "~/.claude/skills/tdd", readonly: true },
       // hostPath 不存在時 docker() 會同步 throw，所以有檔才掛
       ...(existsSync(config.repoEnvPath) ? [{ hostPath: config.repoEnvPath, sandboxPath: "frontend/.env.local", readonly: true }] : []),
@@ -55,7 +63,7 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       name: `agent-${issue.number}`,
       // sandbox 裡唯一的 secret；沒有 GH_TOKEN，push 和開 PR 在 host 做
       agent: claudeCode(config.model, { env: { CLAUDE_CODE_OAUTH_TOKEN: secrets.CLAUDE_CODE_OAUTH_TOKEN } }),
-      sandbox: docker({ imageName: imageTag, cpus: 4, mounts }),
+      sandbox: docker({ imageName: imageTag, cpus: 4, mounts, env: { npm_config_store_dir: SANDBOX_PNPM_STORE } }),
       cwd: config.botClonePath,
       branchStrategy: { type: "branch", branch, baseBranch: baseRef },
       promptFile,
