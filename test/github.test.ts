@@ -155,4 +155,50 @@ describe("github adapter against recorded gh output", () => {
 
     await expect(github.addLabel(42, "agent-in-progress")).rejects.toThrow(/'agent-in-progress' not found/);
   });
+
+  it("finds the open PR for a head branch from `gh pr list --json`, ready or draft", async () => {
+    const { github, calls } = withFakeGh([{ match: ["pr", "list"], stdout: fixture("pr-list-open-ready.json") }]);
+
+    const pr = await github.findOpenPr("hotfix/onprem-self-host-inter-font");
+
+    expect({ pr, argv: calls()[0]?.argv }).toEqual({
+      pr: { number: 2707, url: "https://github.com/ShuChenAI/teamsync-frontend/pull/2707", isDraft: false },
+      argv: expect.arrayContaining(["-R", "acme/widgets", "--head", "hotfix/onprem-self-host-inter-font", "--state", "open"]),
+    });
+  });
+
+  it("returns null when the head branch has no open PR", async () => {
+    const { github } = withFakeGh([{ match: ["pr", "list"], stdout: "[]" }]);
+
+    expect(await github.findOpenPr("agent/42")).toBeNull();
+  });
+
+  it("turns a ready PR back into a draft with `gh pr ready --undo`", async () => {
+    const { github, calls } = withFakeGh([{ match: ["pr", "ready"], stdout: "" }]);
+
+    await github.markPrDraft(2707);
+
+    expect(calls()[0]?.argv).toEqual(["pr", "ready", "2707", "-R", "acme/widgets", "--undo"]);
+  });
+
+  it("updates the PR title and passes the body via file", async () => {
+    const { github, calls } = withFakeGh([{ match: ["pr", "edit"], stdout: "" }]);
+
+    await github.updatePr(2707, { title: "feat: x", body: "Closes #42\n\n`code`" });
+
+    const call = calls()[0]!;
+    expect({ title: call.argv.includes("feat: x"), body: call.bodyFile, pr: call.argv.slice(0, 3) }).toEqual({
+      title: true,
+      body: "Closes #42\n\n`code`",
+      pr: ["pr", "edit", "2707"],
+    });
+  });
+
+  it("removes an assignee from the issue", async () => {
+    const { github, calls } = withFakeGh([{ match: ["issue", "edit"], stdout: "" }]);
+
+    await github.unassign(42, "henry5720");
+
+    expect(calls()[0]?.argv).toEqual(["issue", "edit", "42", "-R", "acme/widgets", "--remove-assignee", "henry5720"]);
+  });
 });

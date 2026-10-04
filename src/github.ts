@@ -109,6 +109,9 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
     async assign(issue, login) {
       await gh(["issue", "edit", String(issue), "-R", repo, "--add-assignee", login]);
     },
+    async unassign(issue, login) {
+      await gh(["issue", "edit", String(issue), "-R", repo, "--remove-assignee", login]);
+    },
     async comment(issue, body) {
       await withBodyFile(body, (path) => gh(["issue", "comment", String(issue), "-R", repo, "--body-file", path]));
     },
@@ -125,6 +128,17 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       const match = /\/pull\/(\d+)$/.exec(url);
       if (!match) throw new Error(`gh pr create: unexpected output ${JSON.stringify(stdout)}`);
       return { number: Number(match[1]), url };
+    },
+    async findOpenPr(head) {
+      const stdout = await gh(["pr", "list", "-R", repo, "--head", head, "--state", "open", "--json", "number,url,isDraft"]);
+      const [pr] = JSON.parse(stdout) as { number: number; url: string; isDraft: boolean }[];
+      return pr ? { number: pr.number, url: pr.url, isDraft: pr.isDraft } : null;
+    },
+    async updatePr(number, { title, body }) {
+      await withBodyFile(body, (path) => gh(["pr", "edit", String(number), "-R", repo, "--title", title, "--body-file", path]));
+    },
+    async markPrDraft(number) {
+      await gh(["pr", "ready", String(number), "-R", repo, "--undo"]);
     },
   };
 }
