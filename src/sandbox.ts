@@ -22,6 +22,22 @@ const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.
 const SETUP_COMMAND = "cd frontend && timeout 300 pnpm install --frozen-lockfile && pnpm exec playwright install chromium";
 
 /**
+ * runRound 把 message 第一行當原因寫進 issue 留言，所以 setup hook 失敗要寫明是 install。
+ * abort（timeout）時 sandcastle 原樣丟 signal.reason，不動它。
+ * Effect 內部的錯會被包成 FiberFailure，name 形如 "(FiberFailure) ExecError"，class 沒 export。
+ */
+function describeFailure(err: unknown): unknown {
+  if (!(err instanceof Error)) return err;
+  const tag = /\(FiberFailure\) (\w+)/.exec(err.name)?.[1];
+  const inSetup = (tag === "ExecError" || tag === "HookTimeoutError") && err.message.includes("pnpm install");
+  if (!inSetup) return err;
+  // ExecError 的 message 是 "Command failed (exit N): <command>\n<stderr>"，真正的原因在 stderr 最後一行
+  const lastLine = err.message.split("\n").map((l) => l.trim()).filter(Boolean).pop() ?? "";
+  const what = tag === "HookTimeoutError" ? "逾時" : "失敗";
+  return new Error(`sandbox 準備階段（pnpm install／playwright install）${what}：${lastLine}`, { cause: err });
+}
+
+/**
  * 包住 sandcastle + docker。sandcastle 沒有 export 假 agent，這層不做自動測試，
  * 整合驗證見 docs/verification.md 與真機實測。
  */
@@ -50,6 +66,8 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       // stream-json 在長的 Bash 期間不吐行；真正的上限交給 signal
       idleTimeoutSeconds: 1800,
       hooks: { sandbox: { onSandboxReady: [{ command: SETUP_COMMAND, timeoutMs: 600_000 }] } },
+    }).catch((err: unknown) => {
+      throw describeFailure(err);
     });
   }
 

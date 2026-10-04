@@ -1,24 +1,30 @@
 import type { Config } from "./config.js";
 import { decide } from "./decide.js";
 import { imageTag } from "./image.js";
+import { failureReason, IN_PROGRESS_LABEL, releaseIssue, removeOldWorktrees, wrapUpCrash, wrapUpNeedsInfo } from "./endings.js";
 import { prBody, prTitle } from "./prBody.js";
 import type { Deps } from "./ports.js";
 import type { Issue } from "./types.js";
 
-export const IN_PROGRESS_LABEL = "agent-in-progress";
 const READY_LABEL = "ready-for-agent";
 
 /**
- * 一輪：fetch → 確認 image → 列候選 → decide() → 一次一張處理。
- * 目前有全過與 `[WIP]` 兩種結局，以及重接（沿用 agent/<N> 與開著的 PR；branch 上有人手做的 commit 就停手問人）。
- * needs-info／timeout／crash 收尾、Slack、flock 在後面的票加；它們收尾時要走 finish()，不然單子接不回來。
+ * 一輪：fetch → 刪超過 3 天的 worktree → 確認 image → 殘留 agent-in-progress 照 crash 收尾 → 列候選 → decide()（含 maxPerRound 上限）→ 一次一張處理。
+ * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash 見 endings.ts。重接（#2700）：沿用 agent/<N> 與開著的 PR；branch 上有人手做的 commit 就停手問人。Slack、flock 在其他票加。
+ * 每種結局都要拿掉接單時 assign 的操作者（見 endings.ts releaseIssue），不然人貼回 ready-for-agent 也接不到。
  */
 export async function runRound(config: Config, deps: Deps): Promise<void> {
   const { github, git, sandbox, clock } = deps;
   const baseRef = `origin/${config.baseBranch}`;
 
   await git.fetch();
+  await removeOldWorktrees(deps);
   const tag = await ensureImage(config, deps, baseRef);
+
+  // flock 保證同時只有一輪，所以這時還帶 agent-in-progress 的都是被硬殺的殘留；不重跑，照 crash 收尾
+  for (const stale of await github.listInProgress()) {
+    await wrapUpCrash(deps, config.operator, stale.number, "上一輪 runner 被中斷（硬殺或關機），沒有收尾");
+  }
 
   const candidates = await github.listCandidates();
   const branchAuthors = Object.fromEntries(
@@ -48,7 +54,8 @@ async function ensureImage(config: Config, { git, sandbox }: Deps, baseRef: stri
   return tag;
 }
 
-async function handleIssue(config: Config, { github, git, sandbox }: Deps, issue: Issue, ctx: { tag: string; baseRef: string }) {
+async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag: string; baseRef: string }) {
+  const { github, git, sandbox } = deps;
   const n = issue.number;
   const branch = `agent/${n}`;
 
@@ -60,18 +67,20 @@ async function handleIssue(config: Config, { github, git, sandbox }: Deps, issue
   await github.comment(n, `🤖 已接單：runner 開始在 sandbox 裡實作，分支 \`${branch}\`。`);
 
   // 實作（整張單共用一個 timeout）。重接時舊的 worktree 會被 sandcastle 重用，先刪掉再從 origin/dev 重來
-  await git.removeWorktree(branch);
+  const leftover = (await git.listWorktrees()).find((w) => w.name === branch.replace(/\//g, "-"));
+  if (leftover) await git.removeWorktree(leftover.path);
   await git.resetBranch(branch, ctx.baseRef);
   const signal = AbortSignal.timeout(config.timeoutMinutes * 60_000);
-  const result = await sandbox.implement({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
-  if (result.outcome === "needs-info") {
-    // #2698（needs-info／timeout／crash）接手；先讓 agent-in-progress 留著給下一輪的殘留掃描
-    throw new Error(`#${n}: outcome "${result.outcome}" 還沒有收尾流程`);
-  }
-
   // reviewer run：乾淨 context 跑 code-review、可 commit 修正、最後重跑檢查。實作回報 wip 也跑（reviewer 可能修好）；
-  // 最後的結局以 review 後的檢查為準
-  const review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
+  // 最後的結局以 review 後的檢查為準。兩次 run 任一次 timeout／crash 都照 crash 收尾
+  let result, review;
+  try {
+    result = await sandbox.implement({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
+    if (result.outcome === "needs-info") return wrapUpNeedsInfo(deps, config.operator, n, result);
+    review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
+  } catch (err) {
+    return wrapUpCrash(deps, config.operator, n, failureReason(err, signal, config.timeoutMinutes));
+  }
 
   // 開 PR（push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN）。重接時沿用還開著的那張，討論留在同一張 PR
   const title = prTitle(result, review);
@@ -86,7 +95,7 @@ async function handleIssue(config: Config, { github, git, sandbox }: Deps, issue
   if (review.outcome === "wip") {
     await github.comment(n, `🤖 有檢查沒過，開了 \`[WIP]\` draft PR，可以從那裡接手：${pr.url}\n\n沒過的檢查：\n\n${review.failedChecks.map((c) => `- ${c}`).join("\n")}`);
   }
-  await finish(config, github, n);
+  await releaseIssue(deps, config.operator, n);
 }
 
 /**
@@ -105,13 +114,4 @@ async function askAboutForeignCommits(github: Deps["github"], n: number, authors
       "- 要保留那些 commit：自己在那條 branch 上接手，不要再貼 `ready-for-agent`",
     ].join("\n"),
   );
-}
-
-/**
- * 每種結局的收尾：拿掉 agent-in-progress 和接單時 assign 的操作者（PR 的 assignee 留著）。
- * 挑單條件有 `no:assignee`，不拿掉的話人貼回 ready-for-agent 也接不到。
- */
-async function finish(config: Config, github: Deps["github"], n: number) {
-  await github.removeLabel(n, IN_PROGRESS_LABEL);
-  await github.unassign(n, config.operator);
 }

@@ -74,7 +74,8 @@ describe("git adapter against a real repo", () => {
     const git = createGit({ repoPath: bot });
     await git.fetch();
 
-    await git.removeWorktree("agent/1");
+    const leftover = (await git.listWorktrees()).find((w) => w.name === "agent-1");
+    await git.removeWorktree(leftover!.path);
     await git.resetBranch("agent/1", "origin/dev");
     await git.push("agent/1");
 
@@ -82,11 +83,5 @@ describe("git adapter against a real repo", () => {
       worktreeGone: !existsSync(wt),
       remoteAtDev: sh(remote, "rev-parse", "agent/1") === sh(remote, "rev-parse", "dev"),
     }).toEqual({ worktreeGone: true, remoteAtDev: true });
-  });
-
-  it("does nothing when there is no leftover worktree", async () => {
-    const git = createGit({ repoPath: bot });
-
-    await expect(git.removeWorktree("agent/9")).resolves.toBeUndefined();
   });
 });

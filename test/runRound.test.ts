@@ -234,11 +234,18 @@ describe("runRound — pick filters", () => {
 });
 
 describe("runRound — re-pickup", () => {
-  it("can pick the same issue again after it finished and a human put ready-for-agent back", async () => {
-    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
+  it.each([
+    { ending: "pass", first: passResult(), review: reviewResult() },
+    { ending: "[WIP]", first: passResult(), review: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
+    { ending: "needs-info", first: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }), review: reviewResult() },
+    { ending: "crash", first: { throws: new Error("pnpm install failed") }, review: reviewResult() },
+  ])("can pick the same issue again after a $ending ending once a human puts ready-for-agent back", async ({ first, review }) => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: first }, reviews: { 42: review } });
     await runRound(testConfig, deps);
+    expect(deps.github.issue(42).assignees).toEqual([]);
 
     deps.github.issue(42).labels.push("ready-for-agent");
+    deps.sandbox.script(42, passResult());
     await runRound(testConfig, deps);
 
     expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42, 42]);
@@ -276,13 +283,13 @@ describe("runRound — re-pickup", () => {
   it("throws away the half-done agent-<N> worktree and restarts agent/<N> from origin/dev", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult() } });
     await runRound(testConfig, deps);
-    deps.git.worktrees.add("agent-42");
+    deps.git.worktrees.push({ name: "agent-42", path: "/bot/widgets/.sandcastle/worktrees/agent-42", modifiedAt: deps.clock.now() });
     deps.git.localBranches.set("agent/42", { base: "half-done", fetchedFirst: true });
 
     deps.github.issue(42).labels.push("ready-for-agent");
     await runRound(testConfig, deps);
 
-    expect({ runs: deps.sandbox.runs.length, worktrees: [...deps.git.worktrees], remote: deps.git.remoteBranches.get("agent/42")?.base }).toEqual({
+    expect({ runs: deps.sandbox.runs.length, worktrees: deps.git.worktrees, remote: deps.git.remoteBranches.get("agent/42")?.base }).toEqual({
       runs: 2,
       worktrees: [],
       remote: "origin/dev",

@@ -97,6 +97,13 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
         openBlockerCount: openBlockers[at] ?? 0,
       }));
     },
+    async listInProgress() {
+      const stdout = await gh([
+        "issue", "list", "-R", repo,
+        "--label", "agent-in-progress", "--state", "open", "--limit", "200", "--json", ISSUE_FIELDS,
+      ]);
+      return parseIssues(stdout);
+    },
     async createLabel(name, { color, description }) {
       await gh(["label", "create", name, "-R", repo, "--color", color, "--description", description, "--force"]);
     },
