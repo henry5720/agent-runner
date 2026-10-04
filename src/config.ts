@@ -14,6 +14,8 @@ export interface Config {
   operator: string;
   /** `gh issue list --search` 的額外條件（`--author @me --label ready-for-agent --state open` 固定帶） */
   pickSearch: string;
+  /** 一輪最多接幾張（一次一張，做完才接下一張） */
+  maxPerRound: number;
   /** PR 的 base，也是 agent/<N> 的起點（`origin/<baseBranch>`） */
   baseBranch: string;
   /** bot clone 的絕對路徑（sandcastle 的 cwd） */
@@ -48,6 +50,7 @@ export const config: Config = {
   repo: "ShuChenAI/teamsync-frontend",
   operator: "henry5720",
   pickSearch: "-is:blocked no:assignee",
+  maxPerRound: 2,
   baseBranch: "dev",
   botClonePath: join(home, "agents/teamsync-frontend"),
   nvmrcPath: "frontend/.nvmrc",

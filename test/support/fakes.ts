@@ -4,7 +4,7 @@
  */
 import type { Config } from "../../src/config.js";
 import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox } from "../../src/ports.js";
-import type { ImplementResult } from "../../src/result.js";
+import type { ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
 /** 建一張預設「操作者自己開、帶 ready-for-agent、沒 parent、沒 sub-issue」的 issue。 */
@@ -16,7 +16,9 @@ export function issue(overrides: Partial<Issue> & { number: number }): Issue {
     labels: ["ready-for-agent"],
     assignees: [],
     parentNumber: null,
+    parentLabels: [],
     subIssueCount: 0,
+    openBlockerCount: 0,
     ...overrides,
   };
 }
@@ -29,6 +31,19 @@ export function passResult(overrides: Partial<ImplementResult> = {}): ImplementR
     verification: [{ command: "pnpm test run src/demo", result: "3 passed" }],
     failedChecks: [],
     questions: [],
+    dependencies: [],
+    ...overrides,
+  };
+}
+
+/** reviewer run 的結果；預設「沒改東西、檢查全過」 */
+export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
+  return {
+    outcome: "pass",
+    summary: "",
+    verification: [],
+    failedChecks: [],
+    dependencies: [],
     ...overrides,
   };
 }
@@ -37,6 +52,7 @@ export const testConfig: Config = {
   repo: "acme/widgets",
   operator: "henry5720",
   pickSearch: "-is:blocked no:assignee",
+  maxPerRound: 2,
   baseBranch: "dev",
   botClonePath: "/bot/widgets",
   nvmrcPath: "frontend/.nvmrc",
@@ -132,11 +148,13 @@ export class FakeSandbox implements Sandbox {
   readonly images: Set<string>;
   readonly builtImages: { tag: string; nodeVersion: string }[] = [];
   readonly runs: ImplementRequest[] = [];
+  readonly reviews: ImplementRequest[] = [];
 
   constructor(
     private readonly results: Record<number, ImplementResult>,
     images: string[] = [],
     private readonly dockerfileText = "FROM node\n",
+    private readonly reviewResults: Record<number, ReviewResult> = {},
   ) {
     this.images = new Set(images);
   }
@@ -158,6 +176,13 @@ export class FakeSandbox implements Sandbox {
     const result = this.results[req.issue.number];
     if (!result) throw new Error(`fake sandbox: no scripted result for #${req.issue.number}`);
     return result;
+  }
+  async review(req: ImplementRequest) {
+    if (!this.images.has(req.imageTag)) throw new Error(`Image '${req.imageTag}' not found locally`);
+    // 跟真的 sandcastle 一樣：共用的 signal 已經 abort 就立刻 reject
+    if (req.signal.aborted) throw req.signal.reason;
+    this.reviews.push(req);
+    return this.reviewResults[req.issue.number] ?? reviewResult();
   }
 }
 
@@ -208,6 +233,8 @@ export class FakePower implements Power {
 export function fakeDeps(opts: {
   issues: Issue[];
   results: Record<number, ImplementResult>;
+  /** 沒給的單 reviewer 回「沒改東西、全過」 */
+  reviews?: Record<number, ReviewResult>;
   images?: string[];
   nvmrc?: string;
   now?: Date;
@@ -216,7 +243,7 @@ export function fakeDeps(opts: {
   return {
     github: new FakeGitHub(opts.issues),
     git: new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" }),
-    sandbox: new FakeSandbox(opts.results, opts.images),
+    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews),
     notifier: new FakeNotifier(),
     clock: new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z")),
     lock: new FakeLock(),

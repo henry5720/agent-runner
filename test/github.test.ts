@@ -30,8 +30,11 @@ function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: stri
 }
 
 describe("github adapter against recorded gh output", () => {
-  it("parses `gh issue list --json` into issues with author, labels, parent and sub-issue count", async () => {
-    const { github } = withFakeGh([{ match: ["issue", "list"], stdout: fixture("issue-list-with-parent.trimmed.json") }]);
+  it("parses `gh issue list --json` into issues with author, labels, parent (and its labels) and sub-issue count", async () => {
+    const { github } = withFakeGh([
+      { match: ["issue", "list"], stdout: fixture("issue-list-with-parent.trimmed.json") },
+      { match: ["issue", "view", "2283"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
+    ]);
 
     const issues = await github.listCandidates();
 
@@ -44,7 +47,9 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: null,
+        parentLabels: [],
         subIssueCount: 12,
+        openBlockerCount: 0,
       },
       {
         number: 2456,
@@ -54,7 +59,9 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: 2283,
+        parentLabels: ["wayfinder:map"],
         subIssueCount: 6,
+        openBlockerCount: 0,
       },
       {
         number: 2326,
@@ -64,9 +71,52 @@ describe("github adapter against recorded gh output", () => {
         labels: ["ready-for-agent"],
         assignees: [],
         parentNumber: null,
+        parentLabels: [],
         subIssueCount: 0,
+        openBlockerCount: 0,
       },
     ]);
+  });
+
+  it("looks up each distinct parent's labels once, in the configured repo", async () => {
+    const list = JSON.stringify([
+      { number: 11, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
+      { number: 12, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: { number: 5 }, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
+    ]);
+    const { github, calls } = withFakeGh([
+      { match: ["issue", "list"], stdout: list },
+      { match: ["issue", "view", "5"], stdout: fixture("issue-view-labels-wayfinder-map.json") },
+    ]);
+
+    const issues = await github.listCandidates();
+
+    const views = calls().filter((c) => c.argv[1] === "view");
+    expect({ views: views.map((c) => c.argv), labels: issues.map((i) => i.parentLabels) }).toEqual({
+      views: [["issue", "view", "5", "-R", "acme/widgets", "--json", "labels"]],
+      labels: [["wayfinder:map"], ["wayfinder:map"]],
+    });
+  });
+
+  it("counts only open blockers, via the REST issue's issue_dependencies_summary", async () => {
+    const list = JSON.stringify([
+      { number: 2699, title: "a", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 1 } },
+      { number: 3000, title: "b", body: "", author: { login: "henry5720" }, labels: [], assignees: [], parent: null, subIssuesSummary: { total: 0 }, blockedBy: { totalCount: 0 } },
+    ]);
+    const { github, calls } = withFakeGh([
+      { match: ["issue", "list"], stdout: list },
+      { match: ["api", "repos/acme/widgets/issues/2699"], stdout: fixture("rest-issue-blocked.trimmed.json") },
+    ]);
+
+    const issues = await github.listCandidates();
+
+    expect({
+      counts: issues.map((i) => [i.number, i.openBlockerCount]),
+      apiCalls: calls().filter((c) => c.argv[0] === "api").map((c) => c.argv),
+    }).toEqual({
+      counts: [[2699, 1], [3000, 0]],
+      // blockedBy 一張都沒有（含已關的）就不用查
+      apiCalls: [["api", "repos/acme/widgets/issues/2699"]],
+    });
   });
 
   it("lists only the operator's open ready-for-agent issues in the configured repo with the configured search", async () => {
