@@ -3,7 +3,7 @@
  * 測試只看最終狀態（issue 的 label／留言、PR、branch、Slack 訊息），不看呼叫次數或順序。
  */
 import type { Config } from "../../src/config.js";
-import type { Clock, Deps, Git, GitHub, ImplementRequest, NewPr, Notifier, Sandbox, Worktree } from "../../src/ports.js";
+import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
 import type { ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
@@ -59,6 +59,8 @@ export const testConfig: Config = {
   tddSkillPath: "/skills/tdd",
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
+  autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
+  stateDir: "/state",
   model: "test-model",
   imageName: "sandcastle-test",
   pnpmStorePath: "/store",
@@ -208,7 +210,7 @@ export class FakeSandbox implements Sandbox {
     images: string[] = [],
     private readonly dockerfileText = "FROM node\n",
     private readonly reviewResults: Record<number, ReviewResult | ScriptedFailure> = {},
-    private readonly host?: { git: FakeGit; clock: Clock; botClonePath: string },
+    private readonly host?: { git: FakeGit; clock: FakeClock; botClonePath: string; minutesPerRun?: number },
   ) {
     this.images = new Set(images);
   }
@@ -232,6 +234,7 @@ export class FakeSandbox implements Sandbox {
     // 跟真的 sandcastle 一樣：image 不存在就失敗，不會自己 build
     if (!this.images.has(req.imageTag)) throw new Error(`Image '${req.imageTag}' not found locally`);
     this.runs.push(req);
+    if (this.host?.minutesPerRun) this.host.clock.advance(this.host.minutesPerRun * 60_000);
     const result = this.results[req.issue.number];
     if (!result) throw new Error(`fake sandbox: no scripted result for #${req.issue.number}`);
     if ("throws" in result) {
@@ -266,6 +269,39 @@ export class FakeClock implements Clock {
   now() {
     return this.current;
   }
+  advance(ms: number) {
+    this.current = new Date(this.current.getTime() + ms);
+  }
+}
+
+/** 另一輪拿著鎖 → `heldByOther = true` */
+export class FakeLock implements Lock {
+  heldByOther = false;
+  held = false;
+
+  async tryAcquire() {
+    if (this.heldByOther || this.held) return null;
+    this.held = true;
+    return async () => {
+      this.held = false;
+    };
+  }
+}
+
+export class FakeRunState implements RunState {
+  current: RunningIssue | null = null;
+
+  async setCurrent(issue: RunningIssue | null) {
+    this.current = issue;
+  }
+}
+
+export class FakePower implements Power {
+  on = true;
+
+  async isOn() {
+    return this.on;
+  }
 }
 
 export function fakeDeps(opts: {
@@ -276,6 +312,8 @@ export function fakeDeps(opts: {
   images?: string[];
   nvmrc?: string;
   now?: Date;
+  /** 每次實作 run 讓假時鐘前進幾分鐘（算 Slack 訊息裡的「花多久」） */
+  minutesPerRun?: number;
 }) {
   const nvmrcKey = `origin/${testConfig.baseBranch}:${testConfig.nvmrcPath}`;
   const clock = new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z"));
@@ -284,8 +322,12 @@ export function fakeDeps(opts: {
   return {
     github,
     git,
-    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath }),
+    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun }),
     notifier: new FakeNotifier(),
     clock,
+    lock: new FakeLock(),
+    runState: new FakeRunState(),
+    power: new FakePower(),
+    stopSignal: new AbortController().signal,
   } satisfies Deps;
 }

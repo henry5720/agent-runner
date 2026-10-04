@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# agent-runner 的開關。薄殼：底下是 systemctl --user，邏輯都在 src/。
+# install.sh（#2703）把它連到 ~/.local/bin。
+set -euo pipefail
+
+RUNNER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+STATE_DIR="$HOME/.local/state/agent-runner"
+TIMER=agent-runner.timer
+AUTOOFF_TIMER=agent-runner-autooff.timer
+SERVICE=agent-runner.service
+
+usage() {
+  cat <<USAGE
+usage: agent-runner <command>
+
+  on           打開：立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
+  off          關掉：正在做的那張做完，不再接新單
+  off --now    立刻停：中斷正在做的那張、照 crash 收尾（最多等 5 分鐘）
+  status       開關、下次觸發、目前在跑哪張、runner commit
+USAGE
+}
+
+user_ctl() { systemctl --user "$@"; }
+
+# 下次觸發時間；timer 沒在跑就是 -
+next_elapse() {
+  local next
+  next="$(user_ctl show "$1" -p NextElapseUSecRealtime --value 2>/dev/null || true)"
+  echo "${next:--}"
+}
+
+cmd_on() {
+  user_ctl start "$AUTOOFF_TIMER" "$TIMER"
+  echo "on：下一輪 $(next_elapse "$TIMER")，自動關 $(next_elapse "$AUTOOFF_TIMER")"
+}
+
+cmd_off() {
+  case "${1:-}" in
+    "")
+      user_ctl stop "$TIMER"
+      if user_ctl is-active --quiet "$SERVICE"; then
+        echo "off：正在做的那張做完就停"
+      else
+        echo "off"
+      fi
+      ;;
+    --now)
+      user_ctl stop "$TIMER"
+      # 等 runner 收完尾才回來（agent-runner.service 的 KillSignal／TimeoutStopSec）
+      user_ctl stop "$SERVICE"
+      rm -f "$STATE_DIR/current"
+      echo "off：已立刻停下，正在做的那張照 crash 收尾"
+      ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+cmd_status() {
+  local switch=off current=-
+  user_ctl is-active --quiet "$TIMER" && switch=on
+  # service 沒在跑時 current 可能是被砍掉那輪留下的，不算數
+  if user_ctl is-active --quiet "$SERVICE"; then
+    current="$(cat "$STATE_DIR/current" 2>/dev/null || echo "（挑單中）")"
+  fi
+  echo "開關：      $switch"
+  echo "下一輪：    $(next_elapse "$TIMER")"
+  echo "自動關：    $(next_elapse "$AUTOOFF_TIMER")"
+  echo "目前在跑：  $current"
+  echo "runner：    $(git -C "$RUNNER_DIR" rev-parse --short HEAD)"
+}
+
+# systemd 叫的那一輪。user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿。
+# exec node（不經 npm）：node 要是 service 的 main process，off --now 的 KillSignal 才會直接送到它。
+cmd_round() {
+  if ! command -v node >/dev/null; then
+    # shellcheck source=/dev/null
+    . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+  fi
+  cd "$RUNNER_DIR"
+  exec node --import tsx src/main.ts
+}
+
+case "${1:-}" in
+  on) cmd_on ;;
+  off) shift; cmd_off "$@" ;;
+  status) cmd_status ;;
+  round) cmd_round ;;
+  -h | --help | help) usage ;;
+  *)
+    usage >&2
+    exit 2
+    ;;
+esac
