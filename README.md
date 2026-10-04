@@ -35,6 +35,7 @@ agent-runner status      # 開關、下次觸發、目前在跑哪張、runner c
 | `bin/agent-runner` | CLI（bash 薄殼，`systemctl --user`） |
 | `systemd/` | `agent-runner.service`／`.timer`、`agent-runner-autooff.timer`／`.service` |
 | `src/image.ts` | image tag = hash(Dockerfile + 目標 repo 的 `.nvmrc`) |
+| `src/endings.ts` | 沒開成 PR 的結局：`needs-info`、timeout／crash 留言、殘留 `agent-in-progress`、刪超過 3 天的 worktree |
 | `src/prBody.ts` `src/result.ts` | PR body、agent 回報的結構化結果 schema |
 | `prompts/implement.md` `prompts/review.md` | 實作 prompt、reviewer prompt（只指向目標 repo 的 `CLAUDE.md` 和 skills） |
 | `Dockerfile` | sandbox image |
