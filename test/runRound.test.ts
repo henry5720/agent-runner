@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
 import { fakeDeps, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import type { ImplementResult } from "../src/result.js";
+import type { Issue } from "../src/types.js";
 
 describe("runRound — happy path", () => {
   it("opens a draft PR into dev from agent/<N>, assigned to the operator, closing the issue", async () => {
@@ -323,5 +325,39 @@ describe("runRound — switched off mid-round", () => {
     await runRound(testConfig, deps);
 
     expect(deps.github.issue(42).labels).toEqual(["ready-for-agent"]);
+  });
+});
+
+describe("runRound — off --now", () => {
+  const stoppedMidIssue = (issues: Issue[], results: Record<number, ImplementResult>) => {
+    const stop = new AbortController();
+    const deps = { ...fakeDeps({ issues, results }), stopSignal: stop.signal };
+    const implement = deps.sandbox.implement.bind(deps.sandbox);
+    deps.sandbox.implement = async (req) => {
+      stop.abort(); // `agent-runner off --now` 在 sandbox 做到一半
+      req.signal.throwIfAborted(); // 跟真的 sandcastle 一樣：signal 一 abort 就以 reason reject
+      return implement(req);
+    };
+    return deps;
+  };
+
+  it("ends the issue it is on as a crash that says it was stopped by off --now", async () => {
+    const deps = stoppedMidIssue([issue({ number: 42 })], { 42: passResult() });
+
+    await runRound(testConfig, deps);
+
+    expect([deps.github.prs, deps.github.issue(42).labels, deps.github.issue(42).comments.at(-1)]).toEqual([
+      [],
+      [],
+      expect.stringContaining("off --now"),
+    ]);
+  });
+
+  it("picks no further issue after being stopped", async () => {
+    const deps = stoppedMidIssue([issue({ number: 42 }), issue({ number: 43 })], { 42: passResult(), 43: passResult() });
+
+    await runRound(testConfig, deps);
+
+    expect(deps.github.issue(43).labels).toEqual(["ready-for-agent"]);
   });
 });

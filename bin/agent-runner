@@ -15,7 +15,7 @@ usage: agent-runner <command>
 
   on           打開：立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
   off          關掉：正在做的那張做完，不再接新單
-  off --now    立刻停：中斷正在做的那張（下一輪照 crash 收尾）
+  off --now    立刻停：中斷正在做的那張、照 crash 收尾（最多等 5 分鐘）
   status       開關、下次觸發、目前在跑哪張、runner commit
 USAGE
 }
@@ -45,9 +45,11 @@ cmd_off() {
       fi
       ;;
     --now)
-      user_ctl stop "$TIMER" "$SERVICE"
+      user_ctl stop "$TIMER"
+      # 等 runner 收完尾才回來（agent-runner.service 的 KillSignal／TimeoutStopSec）
+      user_ctl stop "$SERVICE"
       rm -f "$STATE_DIR/current"
-      echo "off：已立刻停下，留下的 agent-in-progress 由下一輪照 crash 收尾"
+      echo "off：已立刻停下，正在做的那張照 crash 收尾"
       ;;
     *)
       usage >&2
@@ -71,13 +73,14 @@ cmd_status() {
 }
 
 # systemd 叫的那一輪。user service 沒有互動 shell 的 PATH，node 從 nvm 的 default 拿。
+# exec node（不經 npm）：node 要是 service 的 main process，off --now 的 KillSignal 才會直接送到它。
 cmd_round() {
   if ! command -v node >/dev/null; then
     # shellcheck source=/dev/null
     . "${NVM_DIR:-$HOME/.nvm}/nvm.sh"
   fi
   cd "$RUNNER_DIR"
-  exec npm run --silent round
+  exec node --import tsx src/main.ts
 }
 
 case "${1:-}" in

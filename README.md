@@ -17,7 +17,7 @@ npm run typecheck
 ```bash
 agent-runner on          # 立刻跑一輪，之後每 60 分鐘一輪；平日 08:00 Asia/Taipei 自動關
 agent-runner off         # 正在做的那張做完就停
-agent-runner off --now   # 立刻停，下一輪照 crash 收尾
+agent-runner off --now   # 立刻停，正在做的那張照 crash 收尾
 agent-runner status      # 開關、下次觸發、目前在跑哪張、runner commit
 ```
 

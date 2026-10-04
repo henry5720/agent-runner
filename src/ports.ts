@@ -115,4 +115,6 @@ export interface Deps {
   lock: Lock;
   runState: RunState;
   power: Power;
+  /** `agent-runner off --now`：abort → 正在做的那張立刻停、照 crash 收尾，不再接下一張 */
+  stopSignal: AbortSignal;
 }

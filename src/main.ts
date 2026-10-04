@@ -29,6 +29,14 @@ const secrets = readSecrets(config.secretsFile);
 const token = secrets.CLAUDE_CODE_OAUTH_TOKEN;
 if (!token) throw new Error(`CLAUDE_CODE_OAUTH_TOKEN missing in ${config.secretsFile}`);
 
+// `agent-runner off --now` = systemctl stop，unit 設 KillSignal=SIGUSR2。不用 SIGTERM：sandcastle 自己掛了
+// SIGTERM handler，收到就 docker rm -f 然後 process.exit(1)，crash 收尾（gh 留言、改 label）會來不及跑。
+const stop = new AbortController();
+process.once("SIGUSR2", () => {
+  console.error("agent-runner: off --now，中斷正在做的那張、照 crash 收尾");
+  stop.abort(new Error("off --now"));
+});
+
 await runRound(config, {
   github: createGitHub({ repo: config.repo, pickSearch: config.pickSearch }),
   git: createGit({ repoPath: config.botClonePath }),
@@ -38,4 +46,5 @@ await runRound(config, {
   lock: createFlock(join(config.stateDir, "round.lock")),
   runState: createRunStateFile(config.stateDir),
   power: createPower(),
+  stopSignal: stop.signal,
 });

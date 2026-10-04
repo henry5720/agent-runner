@@ -280,5 +280,6 @@ export function fakeDeps(opts: {
     lock: new FakeLock(),
     runState: new FakeRunState(),
     power: new FakePower(),
+    stopSignal: new AbortController().signal,
   } satisfies Deps;
 }
