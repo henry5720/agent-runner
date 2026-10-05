@@ -64,7 +64,7 @@ async function runLockedRound(config: Config, deps: Deps): Promise<void> {
         break;
       }
       case "pickup": {
-        // 關掉（手動 off 或 08:00 自動關）之後不接新單；正在做的那張已經做完了
+        // 關掉（手動 off 或 autoOff 自動關）之後不接新單；正在做的那張已經做完了
         if (deps.stopSignal.aborted || !(await deps.power.isOn())) return;
         // 前一張做完時間已經過了，再問一次 decide（例如已經進入自動關前的最後一個 timeout）
         if (!decide({ ...snapshot, candidates: [action.issue], inProgress: [] }, clock.now()).some((a) => a.kind === "pickup")) return;

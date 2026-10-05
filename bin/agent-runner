@@ -5,6 +5,7 @@ set -euo pipefail
 
 RUNNER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
+# 跟 src/config.ts 的 stateDir 要一致（bash 讀不到 config，只能各寫一份）
 STATE_DIR="$HOME/.local/state/agent-runner"
 TIMER=agent-runner.timer
 AUTOOFF_TIMER=agent-runner-autooff.timer

@@ -17,7 +17,7 @@ export interface FailureDeps {
   notifier: Notifier;
   stateDir: string;
   now: Date;
-  /** 「一晚」在自動關那一刻結束（平日 08:00 Asia/Taipei） */
+  /** 「一晚」在自動關那一刻結束（config.autoOff） */
   nightEndsAt: AutoOffSchedule;
 }
 
@@ -58,7 +58,7 @@ async function readRecord(path: string): Promise<NotifiedRecord | undefined> {
   }
 }
 
-/** 這一晚的名字：`now` 往回推 hour:minute 之後、在那個時區的日期（08:00 前算前一晚） */
+/** 這一晚的名字：`now` 往回推 hour:minute 之後、在那個時區的日期（自動關時間之前算前一晚） */
 function nightOf(now: Date, endsAt: AutoOffSchedule): string {
   const shifted = new Date(now.getTime() - (endsAt.hour * 60 + endsAt.minute) * 60_000);
   return new Intl.DateTimeFormat("en-CA", { timeZone: endsAt.timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(shifted);
