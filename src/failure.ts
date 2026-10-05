@@ -30,7 +30,7 @@ interface NotifiedRecord {
 }
 
 /**
- * runner 自己失敗時發一則 Slack，附 journal 最後幾行。同一原因一晚只發一次（spec #2692 user story 40）：
+ * runner 自己失敗時發一則 Slack，附 journal 最後幾行。同一原因一晚只發一次（不然 runner 壞掉會每輪洗版）：
  * 一晚 = 到下一次自動關的時間點為止；原因 = systemd 的 Result，exit-code 再加上錯誤訊息那一行。
  * 發出去才記；Slack 拒收就 throw，下次同一原因還會再試。
  */
