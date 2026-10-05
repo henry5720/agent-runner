@@ -190,7 +190,7 @@ runner 只透過 `update` 更新：推到這個 public repo 的東西不會下�
 
 ## 安裝
 
-需要：Linux、systemd user session、`docker`、`gh`（已用操作者登入）、node（`.nvmrc` 管的版本）。
+需要：Linux、systemd user session、`docker`、`gh`（已用操作者登入）、node ≥ 22.12（`package.json` 的 `engines`；`bin/agent-runner` 在沒有 `node` 的環境用 nvm 的 `default`）。
 
 ```bash
 git clone <runner repo> ~/agents/agent-runner && ~/agents/agent-runner/install.sh
@@ -265,6 +265,9 @@ npm run typecheck
 | 檔案 | 做什麼 |
 | --- | --- |
 | `src/config.ts` | 全部設定 |
+| `src/main.ts` | 一輪的進入點：讀 secret、接上真實作、處理 `off --now` 的 SIGUSR2，呼叫 `runRound()` |
+| `src/secrets.ts` | 讀 secret 檔（`KEY=VALUE`）、決定 Slack webhook（環境變數優先） |
+| `src/types.ts` | domain 型別：`Issue`、一輪看到的 `Snapshot`、`decide()` 產出的 `Action` |
 | `src/decide.ts` | 純函式 `decide(snapshot, now)`：這一輪要做哪些事 |
 | `src/runRound.ts` | 一輪的流程 |
 | `src/endings.ts` | 沒開成 PR 的結局：needs-info、crash／timeout、殘留 `agent-in-progress`、刪舊 worktree |

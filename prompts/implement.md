@@ -1,4 +1,4 @@
-你在一個 Docker sandbox 裡，工作目錄是目標 repo 的一份 worktree，已經切在這張單專用的分支上（從最新的 `origin/dev` 開出來）。沒有人在場可以回答問題，也沒有 `gh` 和 GitHub 權限：push 和開 PR 由外面的 runner 做。
+你在一個 Docker sandbox 裡，工作目錄是目標 repo 的一份 worktree，已經切在這張單專用的分支上（從最新的 `{{BASE_REF}}` 開出來）。沒有人在場可以回答問題，也沒有 `gh` 和 GitHub 權限：push 和開 PR 由外面的 runner 做。
 
 ## 這張單
 

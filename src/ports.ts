@@ -118,7 +118,7 @@ export interface RunState {
   setCurrent(issue: RunningIssue | null): Promise<void>;
 }
 
-/** 開關（`agent-runner on`／`off`、08:00 自動關）。關掉之後正在做的那張做完，不再接下一張 */
+/** 開關（`agent-runner on`／`off`、autoOff 自動關）。關掉之後正在做的那張做完，不再接下一張 */
 export interface Power {
   isOn(): Promise<boolean>;
 }
