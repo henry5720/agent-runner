@@ -157,7 +157,7 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   // 一般 issue：agent/<N> 開 PR 進 base，等 PR merge 才關
   if (spec === null) return openAgentPr(config, deps, issue, result, review, config.baseBranch);
 
-  // spec 的 sub-issue：全過就合進整合分支 agent/<S> 並關掉；[WIP] 和合併衝突開 PR 進 agent/<S>
+  // spec 的 sub-issue：全過就合進整合分支 agent/<S> 並關掉（有衝突先交給 merge run 解）；[WIP] 和 merge run 解不掉開 PR 進 agent/<S>
   const integration = agentBranch(spec);
   await ensureIntegrationBranch(config, deps, integration);
   if (review.outcome === "wip") return openAgentPr(config, deps, issue, result, review, integration);
@@ -175,7 +175,8 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
 /**
  * host 上的 `git merge` 有衝突（已 abort、agent/<S> 沒動）：再跑一次 sandbox（merge run）讓 agent 在 agent/<S> 上合、
  * 用 resolving-merge-conflicts 解、重跑檢查。跟實作、review 共用整張單的 signal（timeoutMinutes 是整張單的上限）。
- * 解掉而且檢查過、本地 agent/<S> 真的是合併結果 → push（不 force）後照全過收尾；解不掉、檢查沒過、沒合出東西 → [WIP] 進 agent/<S>；
+ * 解掉而且檢查過、本地 agent/<S> 真的是合併結果 → push（不 force）後照全過收尾；解不掉、檢查沒過、沒合出東西、
+ * 期間有人往遠端 agent/<S> push 而被拒 → [WIP] 進 agent/<S>；
  * timeout／crash → 照 crash 收尾，agent/<S> 不 push
  */
 async function resolveConflict(
@@ -203,7 +204,11 @@ async function resolveConflict(
   } catch (err) {
     const why = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, ctx.timeout, config.timeoutMinutes);
     const reason = `${conflict}，交給 agent 解的 merge run 沒跑完：${why}`;
-    return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, config.operator, n, reason) };
+    const half = (await git.listWorktrees()).find((w) => w.name === worktreeName(integration));
+    const note = half
+      ? `解到一半的合併留在 \`${integration}\` 的 worktree \`${half.path}\`（沒有 push）；下次這張 spec 合併有衝突時會被清掉，最晚 3 天後自動刪。`
+      : undefined;
+    return { kind: "crash", reason, worktreePath: (await wrapUpCrash(deps, config.operator, n, reason, note)) ?? half?.path };
   }
 
   if (resolution.outcome === "wip") {
@@ -211,6 +216,9 @@ async function resolveConflict(
   }
   const pushed = await git.pushMerge(integration, branch);
   if (pushed.kind === "merged") return closeIntoSpec(config, deps, issue, ctx.spec, pushed.sha, ctx.result, ctx.review, resolution);
+  if (pushed.kind === "rejected") {
+    return wip(`🤖 檢查都過了，但${conflict}`, [`agent 解掉了衝突，但整合分支 \`${integration}\` 在 merge run 期間被改過，push 被拒（沒有蓋掉）`]);
+  }
   return wip(`🤖 檢查都過了，但${conflict}`, [`merge run 回報解完，但本地 \`${integration}\` 不是 \`${branch}\` 合進 \`origin/${integration}\` 的結果，沒有 push`]);
 }
 

@@ -264,6 +264,54 @@ describe("runRound — spec sub-issue: merge conflict goes to a merge run", () =
     });
   });
 
+  it("merge run crash: points #A's comment at the half-resolved agent/<S> worktree and says it is cleared on the next conflict", async () => {
+    const deps = conflictDeps({ throws: new Error("docker: container exited"), leavesWorktree: true });
+
+    await runRound(testConfig, deps);
+
+    expect(deps.github.issue(42).comments.at(-1)).toMatch(
+      new RegExp(`${testConfig.botClonePath}/\\.sandcastle/worktrees/agent-40[\\s\\S]*下次[\\s\\S]*衝突[\\s\\S]*清掉`),
+    );
+  });
+
+  describe("someone pushes to agent/<S> while the merge run resolves", () => {
+    const racedDeps = () => {
+      const deps = conflictDeps(resolved());
+      deps.sandbox.duringMerge = () => deps.git.humanPushes("agent/40", "henry5720");
+      return deps;
+    };
+
+    it("does not fail the round: keeps the human's agent/<S> and opens a [WIP] draft PR from agent/<A> into agent/<S>", async () => {
+      const deps = racedDeps();
+      let humans: unknown;
+      const during = deps.sandbox.duringMerge!;
+      deps.sandbox.duringMerge = () => {
+        during();
+        humans = [...deps.git.remoteCommits.get("agent/40")!];
+      };
+
+      await runRound(testConfig, deps);
+
+      expect({
+        integration: deps.git.remoteCommits.get("agent/40"),
+        prs: deps.github.prs.map((p) => ({ base: p.base, head: p.head, draft: p.draft, title: p.title })),
+      }).toEqual({ integration: humans, prs: [{ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(report): 匯出" }] });
+    });
+
+    it("keeps #A open and unassigned, saying agent/<S> changed during the merge run and the push was rejected", async () => {
+      const deps = racedDeps();
+
+      await runRound(testConfig, deps);
+
+      expect(deps.github.issue(42)).toMatchObject({
+        state: "OPEN",
+        labels: [],
+        assignees: [],
+        comments: [expect.stringContaining("已接單"), expect.stringMatching(/merge run 期間被改過[\s\S]*push 被拒/)],
+      });
+    });
+  });
+
   it("is not blocked by a worktree of agent/<S> left behind by an earlier merge run", async () => {
     const deps = conflictDeps(resolved());
     deps.git.worktrees.push({ name: "agent-40", path: `${testConfig.botClonePath}/.sandcastle/worktrees/agent-40`, modifiedAt: deps.clock.now() });

@@ -143,10 +143,11 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | 解掉、檢查都過 | 本地 `agent/<S>` 同時包含 `agent/<A>` 和 `origin/agent/<S>` 才 push（不 force），照 ✅ 全過收尾；#A 的留言和整合分支 PR 那段多寫「合併時有衝突」和解完後重跑的檢查 | 推上合併結果 |
 | 解不掉、或解完檢查沒過 | 照 🚧 `[WIP]` 收尾，留言寫明是合併衝突、列出 merge run 回報的卡點 | 不動 |
 | 回報解掉，但 `agent/<S>` 上沒有合併結果 | 照 🚧 `[WIP]` 收尾，不 push | 不動 |
-| timeout／crash／`off --now` | 照 💥 crash 收尾，原因寫明是 merge run | 不動 |
+| 解掉了，但 merge run 期間有人往遠端 `agent/<S>` push | push 不 force、被拒；照 🚧 `[WIP]` 收尾，留言寫明整合分支在 merge run 期間被改過、push 被拒 | 留著人 push 的，不蓋掉 |
+| timeout／crash／`off --now` | 照 💥 crash 收尾，原因寫明是 merge run；sandcastle 留下解到一半的 `agent/<S>` worktree 時，留言附路徑、說明下次這張 spec 合併有衝突時會被清掉 | 不動 |
 
 - merge run 跟實作、reviewer run 共用同一個 `timeoutMinutes`（整張單的上限），所以實作做太久，merge run 可能一開始就 timeout。
-- sandbox 裡沒有 GitHub 權限，push 一樣由 host 做；merge run 期間有人往遠端 `agent/<S>` push，host 的 push 會被拒（不蓋掉人的 commit），這一輪報錯結束（systemd 發 runner 失敗通知）、#A 停在 `agent-in-progress`，下一輪開頭照 crash 收尾。
+- sandbox 裡沒有 GitHub 權限，push 一樣由 host 做。
 - `resolving-merge-conflicts` skill 跟 `/tdd` 一樣從 host 唯讀掛進去（設定 `mergeSkillPath`），只有 merge run 掛。
 - 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
 - PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。

@@ -266,7 +266,9 @@ export class FakeGit implements Git {
     const local = this.localCommits.get(target) ?? [];
     const has = new Set(local.map((c) => c.sha));
     const contains = (ref: string) => this.commitsOf(ref).every((c) => has.has(c.sha));
-    if (!contains(source) || !contains(`origin/${target}`)) return { kind: "not-merged" as const };
+    if (!contains(source)) return { kind: "not-merged" as const };
+    // 真的 git 看的是 fetch 時的 origin/<target>，期間有人 push 的 commit 要到 push 才發現；fake 不分 tracking ref，遠端有本地沒有的 commit 一律當被拒
+    if (!contains(`origin/${target}`)) return { kind: "rejected" as const };
     await this.push(target);
     return { kind: "merged" as const, sha: local.at(-1)!.sha };
   }
@@ -298,6 +300,8 @@ export class FakeSandbox implements Sandbox {
   readonly mergeResults: Record<number, ReviewResult | ScriptedFailure> = {};
   /** 這些單的 merge run 回報 pass，卻沒在 agent/<S> 上合出東西 */
   readonly mergeless = new Set<number>();
+  /** merge run 跑到一半時發生的事（例如人往遠端 agent/<S> push） */
+  duringMerge?: () => void;
 
   constructor(
     private readonly results: Record<number, ScriptedRun>,
@@ -356,7 +360,14 @@ export class FakeSandbox implements Sandbox {
     this.merges.push(req);
     const result = this.mergeResults[req.issue.number];
     if (!result) throw new Error(`fake sandbox: no scripted merge result for #${req.issue.number}`);
-    if ("throws" in result) throw result.throws;
+    this.duringMerge?.();
+    if ("throws" in result) {
+      if (result.leavesWorktree && this.host) {
+        const name = req.branch.replaceAll("/", "-");
+        this.host.git.worktrees.push({ name, path: `${this.host.botClonePath}/.sandcastle/worktrees/${name}`, modifiedAt: this.host.clock.now() });
+      }
+      throw result.throws;
+    }
     if (result.outcome === "pass" && this.host && !this.mergeless.has(req.issue.number)) this.host.git.agentMerges(req.branch, req.source);
     return result;
   }

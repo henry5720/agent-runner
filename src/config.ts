@@ -24,9 +24,9 @@ export interface Config {
   botClonePath: string;
   /** `.nvmrc` 在目標 repo 裡的路徑 */
   nvmrcPath: string;
-  /** `/tdd` skill 在 host 上的路徑（realpath），唯讀掛進 sandbox */
+  /** `/tdd` skill 在 host 上的路徑（skillshare 的來源目錄），唯讀掛進 sandbox */
   tddSkillPath: string;
-  /** `resolving-merge-conflicts` skill 在 host 上的路徑（realpath），只在解合併衝突的 merge run 唯讀掛進 sandbox */
+  /** `resolving-merge-conflicts` skill 在 host 上的路徑（skillshare 的來源目錄），只在解合併衝突的 merge run 唯讀掛進 sandbox */
   mergeSkillPath: string;
   /** runner 的 git author name（bot clone 的 repo 層 user.name） */
   gitAuthor: string;

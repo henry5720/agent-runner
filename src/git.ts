@@ -60,8 +60,15 @@ export function createGit(opts: { repoPath: string }): Git {
       const contains = (ancestor: string) => git(["merge-base", "--is-ancestor", ancestor, target]).then(() => true, () => false);
       // source 整條都在（agent 真的合了）、origin/<target> 也都在（沒改寫整合分支）才 push
       if (!(await contains(source)) || !(await contains(`origin/${target}`))) return { kind: "not-merged" };
-      // 不 force：merge run 期間有人往遠端 push 就讓它失敗，不蓋掉人的 commit
-      await git(["push", "origin", `${target}:refs/heads/${target}`]);
+      // 不 force：merge run 期間有人往遠端 push 就讓它被拒，不蓋掉人的 commit
+      try {
+        await git(["push", "origin", `${target}:refs/heads/${target}`]);
+      } catch (err) {
+        // 只有「遠端有本地沒有的 commit」這種被拒算 rejected；權限、網路等錯誤照常丟出去
+        const stderr = String((err as { stderr?: unknown }).stderr ?? "");
+        if (/\[rejected\]|non-fast-forward|fetch first/.test(stderr)) return { kind: "rejected" };
+        throw err;
+      }
       return { kind: "merged", sha: (await git(["rev-parse", target])).trim() };
     },
     async hasCommits(branch, baseRef) {

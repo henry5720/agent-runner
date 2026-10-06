@@ -24,8 +24,11 @@ export interface OpenPr {
 /** `mergeInto` 的結果：合進去並 push 了（sha 是合併後 target 的 HEAD）／有衝突，已 abort、什麼都沒 push */
 export type MergeOutcome = { kind: "merged"; sha: string } | { kind: "conflict" };
 
-/** `pushMerge` 的結果：本地 target 真的是合併結果、已 push（sha 是 push 上去的 HEAD）／本地 target 不含 source 或改寫了 origin/<target>，什麼都沒 push */
-export type PushMergeOutcome = { kind: "merged"; sha: string } | { kind: "not-merged" };
+/**
+ * `pushMerge` 的結果：本地 target 真的是合併結果、已 push（sha 是 push 上去的 HEAD）／本地 target 不含 source 或改寫了 origin/<target>，什麼都沒 push／
+ * 遠端 target 在這之間被人 push 過，push 被拒（non-fast-forward），遠端沒動
+ */
+export type PushMergeOutcome = { kind: "merged"; sha: string } | { kind: "not-merged" } | { kind: "rejected" };
 
 export interface GitHub {
   /** 候選單（設定裡的挑單條件）；順序不保證 */
@@ -68,7 +71,7 @@ export interface Git {
   mergeInto(target: string, source: string): Promise<MergeOutcome>;
   /**
    * merge run 解完衝突之後：本地 <target> 同時包含 <source> 和 `origin/<target>`（agent 真的合了、沒改寫整合分支）才
-   * `git push origin <target>`（不 force，遠端被人動過就失敗）；否則什麼都不 push，回 not-merged。
+   * `git push origin <target>`（不 force）；否則什麼都不 push，回 not-merged。遠端被人動過、push 被拒 → rejected；其他 push 錯誤照常丟出去。
    */
   pushMerge(target: string, source: string): Promise<PushMergeOutcome>;
   /** `git branch -f <branch> <startPoint>` */

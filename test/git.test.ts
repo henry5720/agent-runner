@@ -192,7 +192,7 @@ describe("git adapter against a real repo", () => {
     expect({ outcome, unchanged: sh(remote, "rev-parse", "agent/7") === before }).toEqual({ outcome: { kind: "not-merged" }, unchanged: true });
   });
 
-  it("refuses to overwrite a commit a human pushed to the integration branch during the merge run", async () => {
+  it("reports a rejected push, without overwriting, when a human pushed to the integration branch during the merge run", async () => {
     integrationBranchWithHumanCommit("same.txt");
     runnerCommitsBesideHuman("same.txt", "runner");
     const git = createGit({ repoPath: bot });
@@ -202,7 +202,19 @@ describe("git adapter against a real repo", () => {
     sh(human, "push", "-q", "origin", "agent/7");
     const humans = sh(remote, "rev-parse", "agent/7");
 
+    const outcome = await git.pushMerge("agent/7", "agent/1");
+
+    expect({ outcome, unchanged: sh(remote, "rev-parse", "agent/7") === humans }).toEqual({ outcome: { kind: "rejected" }, unchanged: true });
+  });
+
+  it("still throws on push errors other than a rejection", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    agentResolvesConflict();
+    sh(bot, "remote", "set-url", "origin", join(bot, "no-such-remote.git"));
+
     await expect(git.pushMerge("agent/7", "agent/1")).rejects.toThrow();
-    expect(sh(remote, "rev-parse", "agent/7")).toBe(humans);
   });
 });
