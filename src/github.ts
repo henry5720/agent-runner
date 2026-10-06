@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { IN_PROGRESS_LABEL, READY_LABEL } from "./names.js";
+import { IN_PROGRESS_LABEL, RUNNER_LABEL } from "./names.js";
 import type { GitHub, NewPr } from "./ports.js";
 import type { Issue } from "./types.js";
 
@@ -25,9 +25,9 @@ interface GhIssue {
 
 const ISSUE_FIELDS = "number,title,body,labels,assignees,author,parent,subIssuesSummary,blockedBy";
 
-type ListedIssue = Omit<Issue, "parentLabels" | "openBlockerCount"> & { blockerCount: number };
+type ListedIssue = Omit<Issue, "parentLabels" | "parentTitle" | "parentBody" | "openBlockerCount"> & { blockerCount: number };
 
-/** parent 的 labels 與 open blocker 數不在 list 輸出裡，listCandidates() 另外查 */
+/** parent 的 labels／標題／內文與 open blocker 數不在 list 輸出裡，listCandidates() 另外查 */
 export function parseIssues(json: string): ListedIssue[] {
   return (JSON.parse(json) as GhIssue[]).map((i) => ({
     number: i.number,
@@ -56,9 +56,10 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
     }
   }
 
-  async function labelsOf(issue: number): Promise<string[]> {
-    const stdout = await gh(["issue", "view", String(issue), "-R", repo, "--json", "labels"]);
-    return (JSON.parse(stdout) as { labels: { name: string }[] }).labels.map((l) => l.name);
+  async function parentOf(issue: number): Promise<{ labels: string[]; title: string; body: string }> {
+    const stdout = await gh(["issue", "view", String(issue), "-R", repo, "--json", "labels,title,body"]);
+    const parent = JSON.parse(stdout) as { labels: { name: string }[]; title: string; body: string };
+    return { labels: parent.labels.map((l) => l.name), title: parent.title, body: parent.body };
   }
 
   async function openBlockerCountOf(issue: number): Promise<number> {
@@ -83,20 +84,25 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       // gh 預設 --limit 30、新到舊；順序交給 decide()
       const stdout = await gh([
         "issue", "list", "-R", repo,
-        "--author", "@me", "--label", READY_LABEL, "--state", "open",
+        "--author", "@me", "--label", RUNNER_LABEL, "--state", "open",
         "--search", pickSearch, "--limit", "200", "--json", ISSUE_FIELDS,
       ]);
       const issues = parseIssues(stdout);
-      // decide() 要知道 parent 是不是 wayfinder:map；同一個 parent 只查一次
-      const parents = [...new Set(issues.flatMap((i) => (i.parentNumber === null ? [] : [i.parentNumber])))];
-      const parentLabels = new Map(await Promise.all(parents.map(async (n) => [n, await labelsOf(n)] as const)));
+      // decide() 要知道 parent 是不是 wayfinder:map；spec 的 sub-issue 要把 parent 的標題、內文給 agent。同一個 parent 只查一次
+      const parentNumbers = [...new Set(issues.flatMap((i) => (i.parentNumber === null ? [] : [i.parentNumber])))];
+      const parents = new Map(await Promise.all(parentNumbers.map(async (n) => [n, await parentOf(n)] as const)));
       // blockedBy 含已關的 blocker；有的才用 REST 的 issue_dependencies_summary.blocked_by 查 open 的數量
       const openBlockers = await Promise.all(issues.map((i) => (i.blockerCount === 0 ? 0 : openBlockerCountOf(i.number))));
-      return issues.map(({ blockerCount: _b, ...i }, at) => ({
-        ...i,
-        parentLabels: i.parentNumber === null ? [] : (parentLabels.get(i.parentNumber) ?? []),
-        openBlockerCount: openBlockers[at] ?? 0,
-      }));
+      return issues.map(({ blockerCount: _b, ...i }, at) => {
+        const parent = i.parentNumber === null ? undefined : parents.get(i.parentNumber);
+        return {
+          ...i,
+          parentLabels: parent?.labels ?? [],
+          parentTitle: parent?.title ?? "",
+          parentBody: parent?.body ?? "",
+          openBlockerCount: openBlockers[at] ?? 0,
+        };
+      });
     },
     async listInProgress() {
       const stdout = await gh([
@@ -128,6 +134,9 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
     async comment(issue, body) {
       await withBodyFile(body, (path) => gh(["issue", "comment", String(issue), "-R", repo, "--body-file", path]));
     },
+    async closeIssue(issue) {
+      await gh(["issue", "close", String(issue), "-R", repo]);
+    },
     async createPr(pr: NewPr) {
       const stdout = await withBodyFile(pr.body, (path) =>
         gh([
@@ -143,9 +152,9 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       return { number: Number(match[1]), url };
     },
     async findOpenPr(head) {
-      const stdout = await gh(["pr", "list", "-R", repo, "--head", head, "--state", "open", "--json", "number,url,isDraft"]);
-      const [pr] = JSON.parse(stdout) as { number: number; url: string; isDraft: boolean }[];
-      return pr ? { number: pr.number, url: pr.url, isDraft: pr.isDraft } : null;
+      const stdout = await gh(["pr", "list", "-R", repo, "--head", head, "--state", "open", "--json", "number,url,isDraft,body"]);
+      const [pr] = JSON.parse(stdout) as { number: number; url: string; isDraft: boolean; body: string }[];
+      return pr ? { number: pr.number, url: pr.url, isDraft: pr.isDraft, body: pr.body } : null;
     },
     async updatePr(number, { title, body }) {
       await withBodyFile(body, (path) => gh(["pr", "edit", String(number), "-R", repo, "--title", title, "--body-file", path]));

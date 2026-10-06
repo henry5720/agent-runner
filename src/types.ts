@@ -12,6 +12,9 @@ export interface Issue {
   parentNumber: number | null;
   /** parent 的 labels；沒有 parent → [] */
   parentLabels: string[];
+  /** parent 的標題與內文（spec 的 sub-issue 給 agent 當背景）；沒有 parent → "" */
+  parentTitle: string;
+  parentBody: string;
   subIssueCount: number;
   /** 還沒關的 blocker 數（已關的不算） */
   openBlockerCount: number;
@@ -28,7 +31,7 @@ export interface Snapshot {
   maxPerRound: number;
   /** runner 的 git author name；agent/<N> 上有別的 author 就是人動過 */
   runnerAuthor: string;
-  /** origin 上 agent/<N> 相對 base 的 commit author name；branch 不存在 → 沒有這個 key 或空陣列 */
+  /** origin 上 agent/<N> 相對它的 base（origin/<baseBranch>，spec 的 sub-issue 是 origin/agent/<S>）的 commit author name；branch 不存在 → 沒有這個 key 或空陣列 */
   branchAuthors: Record<number, string[]>;
   /** 一輪開頭還帶 agent-in-progress 的單。flock 保證同時只有一輪，所以都是被硬殺的殘留 */
   inProgress: Pick<Issue, "number">[];

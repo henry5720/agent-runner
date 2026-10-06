@@ -57,8 +57,23 @@ describe("decide", () => {
       picked: [],
     },
     {
-      name: "skips spec sub-issues (parent is not a wayfinder:map)",
+      name: "picks a spec sub-issue (has a parent that is not a wayfinder:map)",
       candidates: [issue({ number: 10, parentNumber: 5, parentLabels: ["ready-for-agent"] })],
+      picked: [10],
+    },
+    {
+      name: "picks only the lowest-numbered sub-issue of the same spec per round",
+      candidates: [issue({ number: 12, parentNumber: 5 }), issue({ number: 10, parentNumber: 5 }), issue({ number: 11, parentNumber: 6 })],
+      picked: [10, 11],
+    },
+    {
+      name: "does not limit sub-issues of a wayfinder:map to one per round (a map is not a spec)",
+      candidates: [issue({ number: 10, parentNumber: 5, parentLabels: ["wayfinder:map"] }), issue({ number: 11, parentNumber: 5, parentLabels: ["wayfinder:map"] })],
+      picked: [10, 11],
+    },
+    {
+      name: "skips a wayfinder:* sub-issue of a spec",
+      candidates: [issue({ number: 10, parentNumber: 5, labels: ["agent-runner", "wayfinder:decision"] })],
       picked: [],
     },
     {
@@ -91,6 +106,11 @@ describe("decide", () => {
   ])("$name", ({ maxPerRound, picked }) => {
     const candidates = [issue({ number: 30 }), issue({ number: 7 }), issue({ number: 12 })];
     expect(pickedNumbers("henry5720", candidates, maxPerRound)).toEqual(picked);
+  });
+
+  it("does not spend a slot on a second sub-issue of the same spec", () => {
+    const candidates = [issue({ number: 1, parentNumber: 5 }), issue({ number: 2, parentNumber: 5 }), issue({ number: 3 })];
+    expect(pickedNumbers("henry5720", candidates, 2)).toEqual([1, 3]);
   });
 
   it("counts the cap after filtering, so skipped issues do not use up a slot", () => {

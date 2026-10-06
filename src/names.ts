@@ -1,7 +1,7 @@
 /** runner 在 GitHub 與 bot clone 上用到的名字，只在這裡寫一次。 */
 
 /** 人貼上去讓 runner 接的單。跟 `ready-for-agent`（單子寫清楚了）分開：寫清楚不代表要交給 runner */
-export const READY_LABEL = "agent-runner";
+export const RUNNER_LABEL = "agent-runner";
 /** runner 正在做（一輪開頭還帶著 = 上一輪被硬殺的殘留） */
 export const IN_PROGRESS_LABEL = "agent-in-progress";
 /** 單子不清楚，等開單的人補 */

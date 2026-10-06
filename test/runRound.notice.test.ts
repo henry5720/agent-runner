@@ -57,7 +57,7 @@ describe("runRound — Slack notice per issue", () => {
   it("stopped because agent/<N> has someone else's commit: no PR link, gives the stop reason", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42, title: "匯出按鈕" })], results: { 42: passResult() } });
     await runRound(testConfig, deps);
-    deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
+    deps.git.humanPushes("agent/42", "henry5720");
     humanRequeues(deps, 42);
     deps.notifier.messages.length = 0;
 

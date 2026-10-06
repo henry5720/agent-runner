@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Git } from "./ports.js";
@@ -26,6 +27,34 @@ export function createGit(opts: { repoPath: string }): Git {
       if (!exists) return [];
       const names = (await git(["log", "--format=%an", `${baseRef}..${remote}`])).split("\n").filter(Boolean);
       return [...new Set(names)];
+    },
+    async hasRemoteBranch(branch) {
+      return git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).then(() => true, () => false);
+    },
+    async mergeInto(target, source) {
+      // 主 checkout 不能切到 agent/*（sandcastle 的限制），在暫時的 detached worktree 裡合，合完直接 push 到遠端的 target
+      const dir = await mkdtemp(join(tmpdir(), "agent-runner-merge-"));
+      const inDir = async (args: string[]) => (await run("git", ["-C", dir, ...args], { maxBuffer: 16 * 1024 * 1024 })).stdout;
+      try {
+        await git(["worktree", "add", "--detach", "--force", dir, `origin/${target}`]);
+        try {
+          await inDir(["merge", "--no-edit", source]);
+        } catch (err) {
+          // 只有真的有衝突的檔才算衝突；其他失敗（例如沒有 user.name）照常丟出去
+          const conflicted = (await inDir(["diff", "--name-only", "--diff-filter=U"]).catch(() => "")).trim();
+          if (!conflicted) throw err;
+          await inDir(["merge", "--abort"]);
+          return { kind: "conflict" };
+        }
+        await inDir(["push", "origin", `HEAD:refs/heads/${target}`]);
+        // push 會更新 refs/remotes/origin/<target>；之後同一輪從 origin/<target> 開的 branch 拿得到這次合併
+        return { kind: "merged", sha: (await inDir(["rev-parse", "HEAD"])).trim() };
+      } finally {
+        await git(["worktree", "remove", "--force", dir]).catch(async () => {
+          await rm(dir, { recursive: true, force: true });
+          await git(["worktree", "prune"]);
+        });
+      }
     },
     async hasCommits(branch, baseRef) {
       return Number((await git(["rev-list", "--count", `${baseRef}..${branch}`])).trim()) > 0;

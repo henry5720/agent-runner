@@ -326,7 +326,7 @@ describe("runRound — re-pickup", () => {
   it("stops and asks when agent/<N> has a commit by someone other than the runner, leaving the branch and PR alone", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ prTitle: "feat(x): first" }) } });
     await runRound(testConfig, deps);
-    deps.git.remoteAuthors.get("agent/42")!.push("henry5720");
+    deps.git.humanPushes("agent/42", "henry5720");
     const remoteBefore = deps.git.remoteBranches.get("agent/42");
 
     humanRequeues(deps, 42);
