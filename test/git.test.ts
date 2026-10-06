@@ -84,4 +84,67 @@ describe("git adapter against a real repo", () => {
       remoteAtDev: sh(remote, "rev-parse", "agent/1") === sh(remote, "rev-parse", "dev"),
     }).toEqual({ worktreeGone: true, remoteAtDev: true });
   });
+
+  it("tells whether a branch is on origin after fetch", async () => {
+    runnerPushesAgentBranch();
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+
+    expect([await git.hasRemoteBranch("agent/1"), await git.hasRemoteBranch("agent/7")]).toEqual([true, false]);
+  });
+
+  /** 整合分支 agent/7 從 dev 開；人在上面先 push 一顆 commit */
+  function integrationBranchWithHumanCommit(file: string) {
+    sh(human, "switch", "-q", "-c", "agent/7", "origin/dev");
+    writeFileSync(join(human, file), "human");
+    sh(human, "add", file);
+    sh(human, "-c", `user.name=${OPERATOR}`, "-c", `user.email=${EMAIL}`, "commit", "-q", "-m", `human ${file}`);
+    sh(human, "push", "-q", "origin", "agent/7");
+  }
+
+  /** runner 在人那顆 commit 之前就開了 agent/1（這裡直接從 dev 開），commit 一個檔（不 push） */
+  function runnerCommitsBesideHuman(file: string, content: string) {
+    const wt = join(bot, ".sandcastle/worktrees/agent-1");
+    mkdirSync(join(bot, ".sandcastle/worktrees"), { recursive: true });
+    sh(bot, "fetch", "-q");
+    sh(bot, "worktree", "add", "-q", "-b", "agent/1", wt, "origin/dev");
+    writeFileSync(join(wt, file), content);
+    sh(wt, "add", file);
+    sh(wt, "commit", "-q", "-m", `runner ${file}`);
+    sh(bot, "worktree", "remove", "--force", wt);
+  }
+
+  it("merges agent/<A> into the integration branch with `git merge --no-edit` and pushes it, keeping the human's commit pushed meanwhile", async () => {
+    integrationBranchWithHumanCommit("human.txt");
+    runnerCommitsBesideHuman("runner.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+
+    const outcome = await git.mergeInto("agent/7", "agent/1");
+
+    const head = sh(remote, "rev-parse", "agent/7");
+    expect({
+      outcome,
+      parents: sh(remote, "rev-list", "--parents", "-n", "1", "agent/7").split(" ").length - 1,
+      trackingUpdated: sh(bot, "rev-parse", "origin/agent/7") === head,
+      hasBoth: sh(remote, "ls-tree", "--name-only", "agent/7").split("\n").sort(),
+      tempWorktrees: sh(bot, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length,
+    }).toEqual({ outcome: { kind: "merged", sha: head }, parents: 2, trackingUpdated: true, hasBoth: ["base.txt", "human.txt", "runner.txt"], tempWorktrees: 1 });
+  });
+
+  it("aborts on a conflict, pushes nothing and leaves no temporary worktree", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    const before = sh(remote, "rev-parse", "agent/7");
+
+    const outcome = await git.mergeInto("agent/7", "agent/1");
+
+    expect({
+      outcome,
+      unchanged: sh(remote, "rev-parse", "agent/7") === before,
+      tempWorktrees: sh(bot, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length,
+    }).toEqual({ outcome: { kind: "conflict" }, unchanged: true, tempWorktrees: 1 });
+  });
 });

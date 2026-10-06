@@ -1,3 +1,4 @@
+import { agentBranch } from "./names.js";
 import type { ImplementResult, ReviewResult } from "./result.js";
 
 type Verification = ImplementResult["verification"];
@@ -17,16 +18,61 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
     ...(dependencies.length ? [`### 依賴變動\n\n${list(dependencies)}`] : []),
   ].join("\n\n");
 
-  const verification = [
-    `### 實作後\n\n${commands(impl.verification) || "（agent 沒有回報任何驗證指令）"}`,
-    `### review 後\n\n${commands(review.verification) || "（reviewer 沒有回報任何驗證指令）"}`,
-  ].join("\n\n");
+  const verification = verificationText(impl, review);
 
   return [
     `Closes #${issueNumber}`,
     `## 變更摘要\n\n${summary}`,
     `## 驗證（sandbox 內實際跑過）\n\n${verification}`,
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
+    `---\n\n由 sandcastle runner 自動產生。`,
+    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
+  ].join("\n\n");
+}
+
+/** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查 */
+export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###"): string {
+  return [
+    `${heading} 實作後\n\n${commands(impl.verification) || "（agent 沒有回報任何驗證指令）"}`,
+    `${heading} review 後\n\n${commands(review.verification) || "（reviewer 沒有回報任何驗證指令）"}`,
+  ].join("\n\n");
+}
+
+/** 一張合進整合分支的 sub-issue，在整合分支 PR body 裡的一段 */
+export interface MergedSubIssue {
+  number: number;
+  title: string;
+  /** 合併後 agent/<S> 的 HEAD */
+  sha: string;
+  impl: ImplementResult;
+  review: ReviewResult;
+}
+
+const entryPattern = /<!-- sub-issue #(\d+) -->[\s\S]*?<!-- \/sub-issue #\1 -->/g;
+
+/**
+ * 整合分支 `agent/<S>` → base 的 draft PR body：`Closes #S` → 每張合進來的 sub-issue 一段（合進來的順序）→ 署名。
+ * 每段用 HTML 註解標起來，下一張合進來時從現有 body 撈回前面的段落再整份重寫；同一張重做就換掉它那段。段落以外人改的字會被蓋掉。
+ */
+export function specPrBody(spec: number, previousBody: string | null, merged: MergedSubIssue): string {
+  const entries = [...(previousBody ?? "").matchAll(entryPattern)].map((m) => ({ number: Number(m[1]), text: m[0] }));
+  const text = [
+    `<!-- sub-issue #${merged.number} -->`,
+    `### #${merged.number} ${merged.title}`,
+    `合併後的 commit \`${merged.sha}\``,
+    merged.impl.summary,
+    ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
+    verificationText(merged.impl, merged.review, "####"),
+    `<!-- /sub-issue #${merged.number} -->`,
+  ].join("\n\n");
+  const at = entries.findIndex((e) => e.number === merged.number);
+  if (at >= 0) entries[at] = { number: merged.number, text };
+  else entries.push({ number: merged.number, text });
+
+  return [
+    `Closes #${spec}`,
+    `## 已合進整合分支的 sub-issue\n\nrunner 一張一張合進 \`${agentBranch(spec)}\`，每張合進來就關掉。這張 PR 一直是 draft，什麼時候轉 ready 由人決定。`,
+    ...entries.map((e) => e.text),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
   ].join("\n\n");

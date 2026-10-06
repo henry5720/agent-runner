@@ -48,6 +48,8 @@ describe("github adapter against recorded gh output", () => {
         assignees: [],
         parentNumber: null,
         parentLabels: [],
+        parentTitle: "",
+        parentBody: "",
         subIssueCount: 12,
         openBlockerCount: 0,
       },
@@ -60,6 +62,8 @@ describe("github adapter against recorded gh output", () => {
         assignees: [],
         parentNumber: 2283,
         parentLabels: ["wayfinder:map"],
+        parentTitle: "<redacted title 2283>",
+        parentBody: "<redacted body>",
         subIssueCount: 6,
         openBlockerCount: 0,
       },
@@ -72,6 +76,8 @@ describe("github adapter against recorded gh output", () => {
         assignees: [],
         parentNumber: null,
         parentLabels: [],
+        parentTitle: "",
+        parentBody: "",
         subIssueCount: 0,
         openBlockerCount: 0,
       },
@@ -190,7 +196,7 @@ describe("github adapter against recorded gh output", () => {
     const pr = await github.findOpenPr("hotfix/onprem-self-host-inter-font");
 
     expect({ pr, argv: calls()[0]?.argv }).toEqual({
-      pr: { number: 2707, url: "https://github.com/ShuChenAI/teamsync-frontend/pull/2707", isDraft: false },
+      pr: { number: 2707, url: "https://github.com/ShuChenAI/teamsync-frontend/pull/2707", isDraft: false, body: "<redacted body>" },
       argv: expect.arrayContaining(["-R", "acme/widgets", "--head", "hotfix/onprem-self-host-inter-font", "--state", "open"]),
     });
   });
@@ -228,5 +234,13 @@ describe("github adapter against recorded gh output", () => {
     await github.unassign(42, "henry5720");
 
     expect(calls()[0]?.argv).toEqual(["issue", "edit", "42", "-R", "acme/widgets", "--remove-assignee", "henry5720"]);
+  });
+
+  it("closes an issue", async () => {
+    const { github, calls } = withFakeGh([{ match: ["issue", "close"], stdout: "" }]);
+
+    await github.closeIssue(42);
+
+    expect(calls()[0]?.argv).toEqual(["issue", "close", "42", "-R", "acme/widgets"]);
   });
 });

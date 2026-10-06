@@ -18,7 +18,11 @@ export interface OpenPr {
   number: number;
   url: string;
   isDraft: boolean;
+  body: string;
 }
+
+/** `mergeInto` 的結果：合進去並 push 了（sha 是合併後 target 的 HEAD）／有衝突，已 abort、什麼都沒 push */
+export type MergeOutcome = { kind: "merged"; sha: string } | { kind: "conflict" };
 
 export interface GitHub {
   /** 候選單（設定裡的挑單條件）；順序不保證 */
@@ -33,6 +37,8 @@ export interface GitHub {
   assign(issue: number, login: string): Promise<void>;
   unassign(issue: number, login: string): Promise<void>;
   comment(issue: number, body: string): Promise<void>;
+  /** 關 issue（spec 的 sub-issue 合進整合分支後由 runner 關，不等 PR merge） */
+  closeIssue(issue: number): Promise<void>;
   createPr(pr: NewPr): Promise<{ number: number; url: string }>;
   /** head 是這條 branch、還開著的 PR；沒有 → null（關掉或 merge 掉的不算，重接會開新的） */
   findOpenPr(head: string): Promise<OpenPr | null>;
@@ -50,6 +56,13 @@ export interface Git {
   branchAuthors(branch: string, baseRef: string): Promise<string[]>;
   /** 本地 branch 上有沒有不在 baseRef 裡的 commit（`git rev-list --count baseRef..branch` > 0） */
   hasCommits(branch: string, baseRef: string): Promise<boolean>;
+  /** origin 上有沒有這條 branch（看 fetch 後的 `refs/remotes/origin/<branch>`） */
+  hasRemoteBranch(branch: string): Promise<boolean>;
+  /**
+   * 在暫時的 worktree 裡從 `origin/<target>` 跑 `git merge --no-edit <source>`（source 是本地 branch），
+   * 沒衝突就 push 到 origin 的 <target>（不 force；target 沒動過時 git 會直接 fast-forward）；有衝突就 `merge --abort`，什麼都不 push。
+   */
+  mergeInto(target: string, source: string): Promise<MergeOutcome>;
   /** `git branch -f <branch> <startPoint>` */
   resetBranch(branch: string, startPoint: string): Promise<void>;
   /** `git push --force-with-lease origin <branch>` */
@@ -73,7 +86,7 @@ export interface ImplementRequest {
   imageTag: string;
   issue: Issue;
   branch: string;
-  /** agent/<N> 的起點，例如 origin/dev */
+  /** agent/<N> 的起點，例如 origin/dev；spec 的 sub-issue 是 origin/agent/<S> */
   baseRef: string;
   signal: AbortSignal;
 }

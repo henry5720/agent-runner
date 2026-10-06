@@ -17,6 +17,8 @@ export function issue(overrides: Partial<Issue> & { number: number }): Issue {
     assignees: [],
     parentNumber: null,
     parentLabels: [],
+    parentTitle: "",
+    parentBody: "",
     subIssueCount: 0,
     openBlockerCount: 0,
     ...overrides,
@@ -71,6 +73,7 @@ export const testConfig: Config = {
 
 export interface FakeIssue extends Issue {
   comments: string[];
+  state: "OPEN" | "CLOSED";
 }
 
 export class FakeGitHub implements GitHub {
@@ -79,7 +82,7 @@ export class FakeGitHub implements GitHub {
   readonly prs: (NewPr & { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED" })[] = [];
 
   constructor(issues: Issue[], repoLabels = ["agent-runner"]) {
-    for (const i of issues) this.issues.set(i.number, { ...i, labels: [...i.labels], assignees: [...i.assignees], comments: [] });
+    for (const i of issues) this.issues.set(i.number, { ...i, labels: [...i.labels], assignees: [...i.assignees], comments: [], state: "OPEN" });
     this.repoLabels = [...repoLabels];
   }
 
@@ -90,7 +93,9 @@ export class FakeGitHub implements GitHub {
   }
 
   async listCandidates() {
-    return [...this.issues.values()].map(({ comments: _c, ...i }) => ({ ...i, labels: [...i.labels], assignees: [...i.assignees] }));
+    return [...this.issues.values()]
+      .filter((i) => i.state === "OPEN")
+      .map(({ comments: _c, state: _s, ...i }) => ({ ...i, labels: [...i.labels], assignees: [...i.assignees] }));
   }
   async listInProgress() {
     return (await this.listCandidates()).filter((i) => i.labels.includes("agent-in-progress"));
@@ -119,6 +124,9 @@ export class FakeGitHub implements GitHub {
   async comment(n: number, body: string) {
     this.issue(n).comments.push(body);
   }
+  async closeIssue(n: number) {
+    this.issue(n).state = "CLOSED";
+  }
   async createPr(pr: NewPr) {
     const number = 1000 + this.prs.length;
     const url = `https://github.com/acme/widgets/pull/${number}`;
@@ -137,7 +145,7 @@ export class FakeGitHub implements GitHub {
   }
   async findOpenPr(head: string) {
     const found = this.prs.find((p) => p.head === head && p.state === "OPEN");
-    return found ? { number: found.number, url: found.url, isDraft: found.draft } : null;
+    return found ? { number: found.number, url: found.url, isDraft: found.draft, body: found.body } : null;
   }
   async updatePr(number: number, edit: { title: string; body: string }) {
     Object.assign(this.pr(number), edit);
@@ -147,14 +155,22 @@ export class FakeGitHub implements GitHub {
   }
 }
 
+/** fake 的一顆 commit：只記 sha 和 author（`branchAuthors` 只看 author name） */
+export interface FakeCommit {
+  sha: string;
+  author: string;
+}
+
 export class FakeGit implements Git {
   private fetched = false;
+  private seq = 0;
   readonly localBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
   readonly remoteBranches = new Map<string, { base: string; fetchedFirst: boolean }>();
-  /** origin 上每條 branch 相對 origin/dev 的 commit author name（runner push 的都是 runner 的 git author） */
-  readonly remoteAuthors = new Map<string, string[]>();
-  /** 本地 branch 上、不在 base 裡的 commit 數（sandbox run 做完會加） */
-  readonly commits = new Map<string, number>();
+  /** 每條 branch 上、不在 origin/dev 裡的 commit（由舊到新）。origin/dev 本身當成空的 */
+  readonly localCommits = new Map<string, FakeCommit[]>();
+  readonly remoteCommits = new Map<string, FakeCommit[]>();
+  /** 合進任何 branch 都會衝突的來源 branch */
+  readonly conflicts = new Set<string>();
   /** bot clone 的 `.sandcastle/worktrees/` 底下有的目錄 */
   worktrees: Worktree[] = [];
 
@@ -162,6 +178,38 @@ export class FakeGit implements Git {
     private readonly files: Record<string, string>,
     private readonly onPush: (branch: string) => void = () => {},
   ) {}
+
+  private newCommit(author: string): FakeCommit {
+    return { sha: `c${++this.seq}`, author };
+  }
+  /** ref → 它上面不在 origin/dev 裡的 commit；ref 不存在就跟真的 git 一樣失敗 */
+  private commitsOf(ref: string): FakeCommit[] {
+    if (ref === `origin/${testConfig.baseBranch}`) return [];
+    const found = ref.startsWith("origin/") ? this.remoteCommits.get(ref.slice("origin/".length)) : this.localCommits.get(ref);
+    if (!found) throw new Error(`fake git: unknown revision ${ref}`);
+    return found;
+  }
+  private notIn(commits: FakeCommit[], baseRef: string): FakeCommit[] {
+    const base = new Set(this.commitsOf(baseRef).map((c) => c.sha));
+    return commits.filter((c) => !base.has(c.sha));
+  }
+
+  /** sandbox 裡的 agent 在本地 branch 上 commit 一顆 */
+  commit(branch: string, author: string) {
+    const commits = this.localCommits.get(branch);
+    if (!commits) throw new Error(`fake git: no local branch ${branch}`);
+    commits.push(this.newCommit(author));
+  }
+  /** 人直接在 GitHub 上往某條 branch push 一顆 commit（branch 不存在就從 origin/dev 開） */
+  humanPushes(branch: string, author: string) {
+    if (!this.remoteBranches.has(branch)) this.remoteBranches.set(branch, { base: `origin/${testConfig.baseBranch}`, fetchedFirst: true });
+    this.remoteCommits.set(branch, [...(this.remoteCommits.get(branch) ?? []), this.newCommit(author)]);
+  }
+  /** origin/<branch> 是否包含本地 <source> 上的每一顆 commit */
+  remoteContains(branch: string, source: string): boolean {
+    const remote = new Set((this.remoteCommits.get(branch) ?? []).map((c) => c.sha));
+    return (this.localCommits.get(source) ?? []).every((c) => remote.has(c.sha));
+  }
 
   async fetch() {
     this.fetched = true;
@@ -171,24 +219,40 @@ export class FakeGit implements Git {
     if (content === undefined) throw new Error(`fake git: ${ref}:${path} does not exist`);
     return content;
   }
-  async branchAuthors(branch: string) {
-    return [...(this.remoteAuthors.get(branch) ?? [])];
+  async branchAuthors(branch: string, baseRef: string) {
+    const remote = this.remoteCommits.get(branch);
+    if (!remote) return [];
+    return [...new Set(this.notIn(remote, baseRef).map((c) => c.author))];
+  }
+  async hasRemoteBranch(branch: string) {
+    return this.remoteBranches.has(branch);
   }
   async resetBranch(branch: string, startPoint: string) {
     // 跟真的 git 一樣：branch 被某個 worktree checkout 著時 `branch -f` 會失敗
     if (this.worktrees.some((w) => w.name === branch.replace(/\//g, "-"))) throw new Error(`cannot force update the branch '${branch}' used by worktree`);
+    const commits = [...this.commitsOf(startPoint)];
     this.localBranches.set(branch, { base: startPoint, fetchedFirst: this.fetched });
-    this.commits.set(branch, 0);
+    this.localCommits.set(branch, commits);
   }
-  async hasCommits(branch: string) {
-    return (this.commits.get(branch) ?? 0) > 0;
+  async hasCommits(branch: string, baseRef: string) {
+    return this.notIn(this.localCommits.get(branch) ?? [], baseRef).length > 0;
   }
   async push(branch: string) {
     const local = this.localBranches.get(branch);
     if (!local) throw new Error(`fake git: no local branch ${branch}`);
     this.remoteBranches.set(branch, { ...local });
-    this.remoteAuthors.set(branch, [testConfig.gitAuthor]);
+    this.remoteCommits.set(branch, [...(this.localCommits.get(branch) ?? [])]);
     this.onPush(branch);
+  }
+  async mergeInto(target: string, source: string) {
+    const into = this.remoteCommits.get(target);
+    if (!into) throw new Error(`fake git: no remote branch ${target}`);
+    if (this.conflicts.has(source)) return { kind: "conflict" as const };
+    const have = new Set(into.map((c) => c.sha));
+    const merge = this.newCommit(testConfig.gitAuthor);
+    this.remoteCommits.set(target, [...into, ...this.commitsOf(source).filter((c) => !have.has(c.sha)), merge]);
+    this.onPush(target);
+    return { kind: "merged" as const, sha: merge.sha };
   }
   async listWorktrees() {
     return this.worktrees.map((w) => ({ ...w }));
@@ -253,7 +317,7 @@ export class FakeSandbox implements Sandbox {
       }
       throw result.throws;
     }
-    if (this.host && !this.commitless.has(req.issue.number)) this.host.git.commits.set(req.branch, (this.host.git.commits.get(req.branch) ?? 0) + 1);
+    if (this.host && !this.commitless.has(req.issue.number)) this.host.git.commit(req.branch, testConfig.gitAuthor);
     return result;
   }
   async review(req: ImplementRequest) {

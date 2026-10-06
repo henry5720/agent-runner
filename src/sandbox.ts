@@ -8,6 +8,7 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config } from "./config.js";
 import type { ImplementRequest, Sandbox } from "./ports.js";
+import { promptArgs } from "./promptArgs.js";
 import { implementResultSchema, reviewResultSchema } from "./result.js";
 
 const exec = promisify(execFile);
@@ -67,7 +68,7 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       cwd: config.botClonePath,
       branchStrategy: { type: "branch", branch, baseBranch: baseRef },
       promptFile,
-      promptArgs: { ISSUE_NUMBER: issue.number, ISSUE_TITLE: issue.title, ISSUE_BODY: issue.body, BASE_REF: baseRef },
+      promptArgs: promptArgs(issue, baseRef),
       maxIterations: 1,
       output: Output.object({ tag: "result", schema }),
       signal,

@@ -3,12 +3,13 @@
  * 都不自動重試：agent-runner 不會被貼回去，要重來由開單的人手動貼。
  */
 import type { Deps } from "./ports.js";
-import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, READY_LABEL, worktreeName } from "./names.js";
+import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, RUNNER_LABEL, worktreeName } from "./names.js";
 import type { ImplementResult } from "./result.js";
 
 /**
  * 每種結局的收尾：拿掉 agent-in-progress。
  * 全過（`keepAssignee`）的 issue 還在等 PR 用 `Closes #N` merge 關掉，操作者留著＝有人在跟；
+ * spec 的 sub-issue 全過時 runner 自己關掉，操作者一樣留著當紀錄；
  * 其他結局拿掉接單時 assign 的操作者（PR 的 assignee 留著）—— 挑單條件有 `no:assignee`，
  * 不拿掉的話人貼回 agent-runner 也接不到。
  */
@@ -35,7 +36,7 @@ export async function wrapUpNeedsInfo(deps: Deps, operator: string, n: number, r
       "",
       ...questions.map((q) => `- ${q}`),
       "",
-      `補完單子後手動貼回 \`${READY_LABEL}\` 就會重接。`,
+      `補完單子後手動貼回 \`${RUNNER_LABEL}\` 就會重接。`,
     ].join("\n"),
   );
 }
@@ -58,7 +59,7 @@ export async function wrapUpCrash(deps: Deps, operator: string, n: number, reaso
   await releaseIssue(deps, operator, n);
   await github.comment(
     n,
-    [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, "", `不會自動重試；要重來就手動貼回 \`${READY_LABEL}\`。`].join("\n"),
+    [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, "", `不會自動重試；要重來就手動貼回 \`${RUNNER_LABEL}\`。`].join("\n"),
   );
   return kept?.path;
 }
