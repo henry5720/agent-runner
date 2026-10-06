@@ -50,7 +50,7 @@
   `sandbox.merge({ branch: "agent/40", baseRef: "origin/agent/40", source: "agent/42", ... })` → `pushMerge("agent/40", "agent/42")`。
   用 Node 的 module resolve hook 把 `run()` 包一層，只多加 `logging: { type: "file", verbose: true }`（拿 raw stream）。
 
-### 3.0 runner 的 `merge()` 直接被 sandcastle 擋下→ **不行**（bug）
+### 3.0 runner 的 `merge()` 直接被 sandcastle 擋下→ **不行**（bug，已在同一個 PR 修掉）
 
 `src/sandbox.ts:129` 傳 `args: { SOURCE_BRANCH, TARGET_BRANCH }`，這兩個是 sandcastle 的內建 prompt 參數
 （`node_modules/@ai-hero/sandcastle/dist/index.js:661-663` 的 `BUILT_IN_PROMPT_ARG_KEYS`），不能從 `promptArgs` 蓋掉：
@@ -62,7 +62,7 @@ PromptError: "SOURCE_BRANCH" is a built-in prompt argument and cannot be overrid
 在開 container、開 worktree 之前就丟出來，所以每次合併衝突都會走 `resolveConflict` 的 catch，照 crash 收尾，agent 從來沒機會解。
 就算沒被擋，內建值也不對：`SOURCE_BRANCH` 是 sandbox 那條 branch（`agent/<S>`）、`TARGET_BRANCH` 是 host 主 checkout
 目前的 branch（`index.js:1132-1133`），prompt 會叫 agent 把自己合進自己。
-**修法**：`prompts/merge.md` 和 `merge()` 的參數換成不撞名的名字（例如 `MERGE_SOURCE`／`MERGE_TARGET`）。
+**修法**（已修）：`prompts/merge.md` 和 `merge()` 的參數改名成 `MERGE_SOURCE`／`MERGE_TARGET`。下面 3.1 起的實測就是用這兩個名字跑的。
 
 下面 3.1–3.4 為了驗其餘行為，在 hook 裡只把這兩個 placeholder 改名（prompt 其餘一字不改）再跑。
 
