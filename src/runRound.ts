@@ -221,7 +221,8 @@ async function closeIntoSpec(
   const integration = agentBranch(spec);
   const existing = await github.findOpenPr(integration);
   const body = specPrBody(spec, existing?.body ?? null, { number: n, title: issue.title, sha, impl: result, review });
-  const title = issue.parentTitle;
+  // gh 拿不到標題（或 spec 標題是空的）時也要有個 PR 標題
+  const title = issue.parentTitle.trim() || `spec #${spec}`;
   const pr = existing
     ? (await github.updatePr(existing.number, { title, body }), existing)
     : await github.createPr({ base: config.baseBranch, head: integration, title, body, draft: true, assignee: config.operator });

@@ -60,7 +60,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  P["接單：拿掉 agent-runner<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到<br/>origin/baseBranch"]
+  P["接單：拿掉 agent-runner<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到 origin/baseBranch<br/>（有 parent spec：origin/agent/S）"]
   R --> IM["實作 run<br/>（sandbox，乾淨 context）"]
   IM -- "單子不清楚" --> NI["❓ needs-info"]
   IM --> RV["reviewer run<br/>（sandbox，另一個乾淨 context）<br/>跑 code-review、可以直接修、再跑一次檢查"]
@@ -81,13 +81,14 @@ flowchart TD
 
 | 結局 | GitHub 上 | issue assignee | Slack |
 | --- | --- | --- | --- |
-| ✅ 全過 | draft PR（body 有 `Closes #N`），拿掉 `agent-in-progress`；spec 的 sub-issue 改成合進整合分支、留言後關掉 | 留著操作者（等 PR merge 才關單，這段時間有人在跟） | 單名、PR、花多久 |
+| ✅ 全過 | draft PR（body 有 `Closes #N`），拿掉 `agent-in-progress`；spec 的 sub-issue 改成合進整合分支、留言後關掉 | 留著操作者。沒有 parent spec：等 PR merge 才關單，這段時間有人在跟；有 parent spec：已經關掉，留著當紀錄 | 單名、PR、花多久 |
 | 🚧 `[WIP]` | 標題帶 `[WIP]` 的 draft PR，issue 上留 PR 連結和沒過的檢查 | 拿掉 | ＋ 哪個檢查沒過 |
 | ❓ needs-info | 不開 PR，留言列出卡點，貼 `needs-info` | 拿掉 | ＋ 第一個卡點 |
 | 💥 crash／timeout | 不開 PR，留言寫原因；有留下 worktree 才附路徑（3 天後自動刪） | 拿掉 | ＋ 原因、worktree 或分支 |
 | ✋ 停手 | `agent/<N>` 上有人手做的 commit：不碰 branch 和 PR，留言問人，拿掉 `agent-runner` | 沒接單，不動 | ＋ 原因 |
 
 PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ sandbox 裡實際跑過的驗證指令和結果 → `[WIP]` 才有的「沒過的檢查」→ 署名。
+整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
 
 ## issue 的 label 怎麼變
@@ -115,7 +116,7 @@ stateDiagram-v2
 
 重試只有一條路：補完單子、手動貼回 `agent-runner`。
 
-- `agent/<N>` 已經存在時，runner 沿用這條 branch 和它還開著的 PR：從 `origin/<baseBranch>` 重做、`--force-with-lease`，更新 PR 標題與 body（全過就拿掉 `[WIP]`）。討論都留在同一張 PR。
+- `agent/<N>` 已經存在時，runner 沿用這條 branch 和它還開著的 PR：從 `origin/<baseBranch>`（有 parent spec 時是最新的 `origin/agent/<S>`）重做、`--force-with-lease`，更新 PR 標題與 body（全過就拿掉 `[WIP]`）。討論都留在同一張 PR。
 - PR 已經被轉 ready：先退回 draft 再 push，不然 force push 會觸發一整次 CI。
 - branch 上有 author 不是 runner 的 commit：runner 停手，留言請人決定，並拿掉 `agent-runner`（不然每一輪都會再問一次）。要 runner 重做就刪掉遠端 branch 再貼回。
 - 全過的單 assignee 還是操作者，而挑單條件要求沒有 assignee，所以要重做全過的單要先拿掉 assignee 再貼回 `agent-runner`。

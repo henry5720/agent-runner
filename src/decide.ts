@@ -14,6 +14,7 @@ export function specOf(issue: Pick<Issue, "parentNumber" | "parentLabels">): num
  * 純函式：這一輪看到的世界 → 要做的動作。不碰任何外部。
  *
  * 每一條挑單規則是 PICK_RULES 裡的一列；後面的票往表裡加列或在下面加分支，不改呼叫端。
+ * PICK_RULES 一次只看一張單；要看同一輪其他單的跨單規則（同一張 spec 一輪只接一張）不在表裡，寫在 decide() 的過濾裡。
  */
 type PickRule = (issue: Issue, snapshot: Snapshot, now: Date) => boolean;
 

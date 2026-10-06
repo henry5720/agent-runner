@@ -62,6 +62,14 @@ describe("runRound — spec sub-issue: everything passes", () => {
     ]);
   });
 
+  it("falls back to `spec #<S>` as the integration PR title when the spec title is empty", async () => {
+    const deps = fakeDeps({ issues: [issue({ number: 42, parentNumber: 40, parentLabels: [], parentTitle: "" })], results: { 42: passResult() } });
+
+    await runRound(testConfig, deps);
+
+    expect(deps.github.prs.map((p) => [p.head, p.title])).toEqual([["agent/40", "spec #40"]]);
+  });
+
   it("updates that same draft PR for the next sub-issue, listing both, without marking it ready", async () => {
     const deps = fakeDeps({
       issues: [subIssue(42), subIssue(43)],
