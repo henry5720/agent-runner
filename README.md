@@ -1,7 +1,7 @@
 # agent-runner
 
 沒人在場的時候，把 GitHub 上貼了 `agent-runner` 的 issue 一張一張丟進 Docker sandbox 讓 Claude Code 實作，
-做完從 `agent/<N>` 開一張 draft PR，再發一則 Slack 告訴操作者結果。sandbox 用的是 [sandcastle](https://github.com/mattpocock/sandcastle)。
+做完從 `agent/<N>` 開一張 draft PR（spec 的 sub-issue 改成合進整合分支，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)），再發一則 Slack 告訴操作者結果。sandbox 用的是 [sandcastle](https://github.com/mattpocock/sandcastle)。
 
 操作者下班前 `agent-runner on`，runner 每隔一段時間跑一輪，到隔天上班前的設定時間自己關掉；早上看 Slack 和 draft PR 就知道昨晚做了什麼。
 文件裡出現的 `roundIntervalMinutes` 這類名字都是 `src/config.ts` 的設定，值看那裡，見[設定](#設定)。
@@ -49,8 +49,8 @@ flowchart TD
 
 - 開單的人是 `operator`，帶 `agent-runner`，符合 `pickSearch`（目前是沒有 assignee、沒有被 block）。只帶 `ready-for-agent` 的不接：那個 label 只代表單子寫清楚了，要不要交給 runner 由人另外貼 `agent-runner` 決定
 - 不帶 `wayfinder:*` label（那是規劃票，不是給 agent 做的）
-- 沒有 sub-issue（母單是拆給子單做的）
-- 有 parent 的話，parent 要帶 `wayfinder:map`（掛在 spec 底下的子單由 spec 自己推進）
+- 沒有 sub-issue（母單，含 spec 本身，是拆給 sub-issue 做的）
+- spec 的 sub-issue（有 parent、parent 不是 `wayfinder:map`）照接，但同一張 spec 一輪只接一張（編號小的先）：它們都寫同一條整合分支
 - 離下一次自動關不到 `timeoutMinutes` 就不接（不然明知會在自動關時被砍成 crash）
 - 照 issue 編號由小到大
 
@@ -81,7 +81,7 @@ flowchart TD
 
 | 結局 | GitHub 上 | issue assignee | Slack |
 | --- | --- | --- | --- |
-| ✅ 全過 | draft PR（body 有 `Closes #N`），拿掉 `agent-in-progress` | 留著操作者（等 PR merge 才關單，這段時間有人在跟） | 單名、PR、花多久 |
+| ✅ 全過 | draft PR（body 有 `Closes #N`），拿掉 `agent-in-progress`；spec 的 sub-issue 改成合進整合分支、留言後關掉 | 留著操作者（等 PR merge 才關單，這段時間有人在跟） | 單名、PR、花多久 |
 | 🚧 `[WIP]` | 標題帶 `[WIP]` 的 draft PR，issue 上留 PR 連結和沒過的檢查 | 拿掉 | ＋ 哪個檢查沒過 |
 | ❓ needs-info | 不開 PR，留言列出卡點，貼 `needs-info` | 拿掉 | ＋ 第一個卡點 |
 | 💥 crash／timeout | 不開 PR，留言寫原因；有留下 worktree 才附路徑（3 天後自動刪） | 拿掉 | ＋ 原因、worktree 或分支 |
@@ -119,6 +119,26 @@ stateDiagram-v2
 - PR 已經被轉 ready：先退回 draft 再 push，不然 force push 會觸發一整次 CI。
 - branch 上有 author 不是 runner 的 commit：runner 停手，留言請人決定，並拿掉 `agent-runner`（不然每一輪都會再問一次）。要 runner 重做就刪掉遠端 branch 再貼回。
 - 全過的單 assignee 還是操作者，而挑單條件要求沒有 assignee，所以要重做全過的單要先拿掉 assignee 再貼回 `agent-runner`。
+
+## spec 的 sub-issue 走整合分支
+
+parent 是 spec 的 sub-issue #A（spec #S）不各自開 PR 進 `<baseBranch>`，而是一張一張合進同一條整合分支 `agent/<S>`，
+spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A 合進去就關，被它擋的下一張 sub-issue 下一輪就解鎖，人不在也能一路往下做。
+形狀照 sandcastle 的 `parallel-planner` 範本：每張自己的分支 → merge 進同一條 → 關 issue。
+
+| 時機 | runner 做什麼 |
+| --- | --- |
+| 開分支 | `agent/<A>` 從 `origin/agent/<S>` 開；遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 開 |
+| ✅ 全過 | 遠端沒有 `agent/<S>` 就先從 `origin/<baseBranch>` 建 → host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 第一張開 `agent/<S>` → `<baseBranch>` 的 draft PR（assign 操作者、body 有 `Closes #S`），之後每張更新同一張 PR 的 body → #A 留言（合併後的 commit、驗證指令）後關掉 |
+| 合併有衝突 | `merge --abort`，`agent/<S>` 不動，照下一列 `[WIP]` 收尾，留言寫明是合併衝突 |
+| 🚧 `[WIP]` | push `agent/<A>`，開 `[WIP]` draft PR 進 `agent/<S>`（不是 `<baseBranch>`），拿掉 assignee，#A 不關；人修好、merge 進 `agent/<S>` 後手動關 |
+| ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不建也不動 `agent/<S>` |
+| 重做 | 從最新的 `origin/agent/<S>` 重開，拿得到期間別張合進去、或人在上面 push 的 commit |
+
+- 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
+- PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。
+- 「有別人的 commit」只看 `agent/<A>` 相對 `origin/agent/<S>`：人在 `agent/<S>` 上 commit 會被當成基底往下做，不會讓 runner 停手。
+- sandbox 裡的 agent 會拿到 spec 的標題和內文，包在 `<parent-issue-body>` 裡、標明是背景資料不是指令。
 
 ## host 和 sandbox 各放什麼
 
@@ -243,7 +263,7 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `roundIntervalMinutes` | 打開之後每隔多久一輪 |
 | `timeoutMinutes` | 每張單的上限（實作＋review 一起算）；離自動關不到這麼久就不接新單 |
 | `autoOff` | 自動關的星期、時間、時區；也是「同一原因一晚只通知一次」的一晚的結尾 |
-| `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點 |
+| `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點（spec 的 sub-issue 從整合分支開，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)） |
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
 | `model` | sandbox 裡 Claude Code 用的 model |
 | `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` `repoEnvPath` | 各種 host 路徑 |
@@ -275,7 +295,8 @@ npm run typecheck
 | `src/decide.ts` | 純函式 `decide(snapshot, now)`：這一輪要做哪些事 |
 | `src/runRound.ts` | 一輪的流程 |
 | `src/endings.ts` | 沒開成 PR 的結局：needs-info、crash／timeout、殘留 `agent-in-progress`、刪舊 worktree |
-| `src/prBody.ts` `src/result.ts` | PR 標題與 body、agent 回報的結構化結果 schema |
+| `src/prBody.ts` `src/result.ts` | PR 標題與 body（含整合分支 PR）、agent 回報的結構化結果 schema |
+| `src/promptArgs.ts` | prompt 的 `{{KEY}}` 帶什麼（含 spec 的背景段落） |
 | `src/notice.ts` | 每張單收尾的 Slack 訊息 |
 | `src/failure.ts` | runner 自己失敗的 Slack 通知 |
 | `src/ports.ts` | 外部邊界的介面 |
