@@ -1,6 +1,6 @@
 # agent-runner
 
-沒人在場的時候，把 GitHub 上寫清楚、貼了 `ready-for-agent` 的 issue 一張一張丟進 Docker sandbox 讓 Claude Code 實作，
+沒人在場的時候，把 GitHub 上貼了 `agent-runner` 的 issue 一張一張丟進 Docker sandbox 讓 Claude Code 實作，
 做完從 `agent/<N>` 開一張 draft PR，再發一則 Slack 告訴操作者結果。sandbox 用的是 [sandcastle](https://github.com/mattpocock/sandcastle)。
 
 操作者下班前 `agent-runner on`，runner 每隔一段時間跑一輪，到隔天上班前的設定時間自己關掉；早上看 Slack 和 draft PR 就知道昨晚做了什麼。
@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-  A["issue<br/>ready-for-agent"] --> B["runner 接單"]
+  A["issue<br/>agent-runner"] --> B["runner 接單"]
   B --> C["sandbox 裡<br/>實作 + 檢查"]
   C --> D["sandbox 裡<br/>code review + 再檢查"]
   D --> E["host 上<br/>push + 開 draft PR"]
@@ -47,7 +47,7 @@ flowchart TD
 `decide()`（`src/decide.ts`）是純函式：吃這一輪看到的 issue、label、branch 狀態和現在時間，吐出動作清單，不碰任何外部。
 挑單規則全在這裡：
 
-- 開單的人是 `operator`，帶 `ready-for-agent`，符合 `pickSearch`（目前是沒有 assignee、沒有被 block）
+- 開單的人是 `operator`，帶 `agent-runner`，符合 `pickSearch`（目前是沒有 assignee、沒有被 block）。只帶 `ready-for-agent` 的不接：那個 label 只代表單子寫清楚了，要不要交給 runner 由人另外貼 `agent-runner` 決定
 - 不帶 `wayfinder:*` label（那是規劃票，不是給 agent 做的）
 - 沒有 sub-issue（母單是拆給子單做的）
 - 有 parent 的話，parent 要帶 `wayfinder:map`（掛在 spec 底下的子單由 spec 自己推進）
@@ -60,7 +60,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  P["接單：拿掉 ready-for-agent<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到<br/>origin/baseBranch"]
+  P["接單：拿掉 agent-runner<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到<br/>origin/baseBranch"]
   R --> IM["實作 run<br/>（sandbox，乾淨 context）"]
   IM -- "單子不清楚" --> NI["❓ needs-info"]
   IM --> RV["reviewer run<br/>（sandbox，另一個乾淨 context）<br/>跑 code-review、可以直接修、再跑一次檢查"]
@@ -85,7 +85,7 @@ flowchart TD
 | 🚧 `[WIP]` | 標題帶 `[WIP]` 的 draft PR，issue 上留 PR 連結和沒過的檢查 | 拿掉 | ＋ 哪個檢查沒過 |
 | ❓ needs-info | 不開 PR，留言列出卡點，貼 `needs-info` | 拿掉 | ＋ 第一個卡點 |
 | 💥 crash／timeout | 不開 PR，留言寫原因；有留下 worktree 才附路徑（3 天後自動刪） | 拿掉 | ＋ 原因、worktree 或分支 |
-| ✋ 停手 | `agent/<N>` 上有人手做的 commit：不碰 branch 和 PR，留言問人，拿掉 `ready-for-agent` | 沒接單，不動 | ＋ 原因 |
+| ✋ 停手 | `agent/<N>` 上有人手做的 commit：不碰 branch 和 PR，留言問人，拿掉 `agent-runner` | 沒接單，不動 | ＋ 原因 |
 
 PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ sandbox 裡實際跑過的驗證指令和結果 → `[WIP]` 才有的「沒過的檢查」→ 署名。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
@@ -95,10 +95,10 @@ draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要
 ```mermaid
 stateDiagram-v2
   direction LR
-  ready: ready-for-agent
+  ready: agent-runner
   doing: agent-in-progress
   info: needs-info
-  done: 沒有 label
+  done: 沒有 runner 的 label
   ready --> doing: runner 接單
   doing --> done: 全過 / [WIP] / crash
   doing --> info: 單子不清楚
@@ -109,14 +109,16 @@ stateDiagram-v2
 
 `agent-in-progress` 和 `needs-info` 第一次用到才建立。runner 被硬殺時 issue 會停在 `agent-in-progress`，下一輪開頭會照 crash 收尾。
 
+人不要手動貼 `agent-in-progress`：runner 會當成上一輪被硬殺的殘留，照 crash 收尾、發 Slack 通知。
+
 ### 重做一張單（重接）
 
-重試只有一條路：補完單子、手動貼回 `ready-for-agent`。
+重試只有一條路：補完單子、手動貼回 `agent-runner`。
 
 - `agent/<N>` 已經存在時，runner 沿用這條 branch 和它還開著的 PR：從 `origin/<baseBranch>` 重做、`--force-with-lease`，更新 PR 標題與 body（全過就拿掉 `[WIP]`）。討論都留在同一張 PR。
 - PR 已經被轉 ready：先退回 draft 再 push，不然 force push 會觸發一整次 CI。
-- branch 上有 author 不是 runner 的 commit：runner 停手，留言請人決定，並拿掉 `ready-for-agent`（不然每一輪都會再問一次）。要 runner 重做就刪掉遠端 branch 再貼回。
-- 全過的單 assignee 還是操作者，而挑單條件要求沒有 assignee，所以要重做全過的單要先拿掉 assignee 再貼回 `ready-for-agent`。
+- branch 上有 author 不是 runner 的 commit：runner 停手，留言請人決定，並拿掉 `agent-runner`（不然每一輪都會再問一次）。要 runner 重做就刪掉遠端 branch 再貼回。
+- 全過的單 assignee 還是操作者，而挑單條件要求沒有 assignee，所以要重做全過的單要先拿掉 assignee 再貼回 `agent-runner`。
 
 ## host 和 sandbox 各放什麼
 
@@ -217,6 +219,8 @@ AGENT_RUNNER_SLACK_WEBHOOK_URL=   # Slack incoming webhook（只有操作者在�
 ```
 
 ### 目標 repo 要配合的事
+
+要先建好 `agent-runner` label（`gh label create agent-runner -R <repo>`）。runner 只挑帶這個 label 的單，但不會自己建；沒建的話人貼不上去，runner 也就一張都接不到。
 
 agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 repo 的 workflow 要擋掉 agent 的 draft PR：
 

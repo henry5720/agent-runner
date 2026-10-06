@@ -12,7 +12,7 @@ export interface Config {
   repo: string;
   /** 操作者的 GitHub login：開單的人、PR／issue 的 assignee */
   operator: string;
-  /** `gh issue list --search` 的額外條件（`--author @me --label ready-for-agent --state open` 固定帶） */
+  /** `gh issue list --search` 的額外條件（`--author @me --label agent-runner --state open` 固定帶） */
   pickSearch: string;
   /** 一輪最多接幾張（一次一張，做完才接下一張） */
   maxPerRound: number;

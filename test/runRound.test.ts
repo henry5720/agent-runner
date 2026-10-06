@@ -86,7 +86,7 @@ describe("runRound — happy path", () => {
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(7)).toMatchObject({ labels: ["ready-for-agent"], assignees: [], comments: [] });
+    expect(deps.github.issue(7)).toMatchObject({ labels: ["agent-runner"], assignees: [], comments: [] });
   });
 });
 
@@ -230,7 +230,7 @@ describe("runRound — pick filters", () => {
 
     expect({ prs: deps.github.prs.map((p) => p.head), left: deps.github.issue(30).labels }).toEqual({
       prs: ["agent/7", "agent/12"],
-      left: ["ready-for-agent"],
+      left: ["agent-runner"],
     });
   });
 });
@@ -241,7 +241,7 @@ describe("runRound — re-pickup", () => {
     await runRound(testConfig, deps);
     expect(deps.github.issue(42).assignees).toEqual([testConfig.operator]);
 
-    deps.github.issue(42).labels.push("ready-for-agent");
+    deps.github.issue(42).labels.push("agent-runner");
     await runRound(testConfig, deps);
     expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42]);
 
@@ -255,7 +255,7 @@ describe("runRound — re-pickup", () => {
     { ending: "[WIP]", first: passResult(), review: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
     { ending: "needs-info", first: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }), review: reviewResult() },
     { ending: "crash", first: { throws: new Error("pnpm install failed") }, review: reviewResult() },
-  ])("can pick the same issue again after a $ending ending once a human puts ready-for-agent back", async ({ first, review }) => {
+  ])("can pick the same issue again after a $ending ending once a human puts agent-runner back", async ({ first, review }) => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: first }, reviews: { 42: review } });
     await runRound(testConfig, deps);
     expect(deps.github.issue(42).assignees).toEqual([]);
@@ -267,7 +267,7 @@ describe("runRound — re-pickup", () => {
     expect(deps.sandbox.runs.map((r) => r.issue.number)).toEqual([42, 42]);
   });
 
-  it("drops needs-info when a human puts ready-for-agent back on a needs-info issue, starting over", async () => {
+  it("drops needs-info when a human puts agent-runner back on a needs-info issue, starting over", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: passResult({ outcome: "needs-info", questions: ["要哪個欄位？"] }) } });
     await runRound(testConfig, deps);
 
@@ -345,7 +345,7 @@ describe("runRound — re-pickup", () => {
       issue: expect.objectContaining({
         labels: [],
         assignees: [],
-        comments: [expect.stringContaining("已接單"), expect.stringMatching(/henry5720[\s\S]*ready-for-agent/)],
+        comments: [expect.stringContaining("已接單"), expect.stringMatching(/henry5720[\s\S]*agent-runner/)],
       }),
     });
   });
@@ -358,7 +358,7 @@ describe("runRound — overlapping rounds", () => {
 
     await runRound(testConfig, deps);
 
-    expect([deps.github.prs, deps.github.issue(42).labels]).toEqual([[], ["ready-for-agent"]]);
+    expect([deps.github.prs, deps.github.issue(42).labels]).toEqual([[], ["agent-runner"]]);
   });
 
   it("releases the lock when the round ends", async () => {
@@ -413,7 +413,7 @@ describe("runRound — switched off mid-round", () => {
 
     await runRound(testConfig, deps);
 
-    expect([deps.github.prs.map((pr) => pr.head), deps.github.issue(43).labels]).toEqual([["agent/42"], ["ready-for-agent"]]);
+    expect([deps.github.prs.map((pr) => pr.head), deps.github.issue(43).labels]).toEqual([["agent/42"], ["agent-runner"]]);
   });
 
   it("does not start the next issue when the first one ran into the last hour before auto-off", async () => {
@@ -431,7 +431,7 @@ describe("runRound — switched off mid-round", () => {
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(43).labels).toEqual(["ready-for-agent"]);
+    expect(deps.github.issue(43).labels).toEqual(["agent-runner"]);
   });
 
   it("picks nothing when the runner was switched off before the round started", async () => {
@@ -440,7 +440,7 @@ describe("runRound — switched off mid-round", () => {
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(42).labels).toEqual(["ready-for-agent"]);
+    expect(deps.github.issue(42).labels).toEqual(["agent-runner"]);
   });
 });
 
@@ -474,6 +474,6 @@ describe("runRound — off --now", () => {
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(43).labels).toEqual(["ready-for-agent"]);
+    expect(deps.github.issue(43).labels).toEqual(["agent-runner"]);
   });
 });
