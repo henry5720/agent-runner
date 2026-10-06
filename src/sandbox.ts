@@ -126,7 +126,8 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     async merge(req: MergeRequest) {
       return (
         await runAgent(req, MERGE_PROMPT, reviewResultSchema, {
-          args: { SOURCE_BRANCH: req.source, TARGET_BRANCH: req.branch },
+          // 不能用 SOURCE_BRANCH／TARGET_BRANCH：sandcastle 保留給自己（BUILT_IN_PROMPT_ARG_KEYS），傳了會在開 container 前丟錯
+          args: { MERGE_SOURCE: req.source, MERGE_TARGET: req.branch },
           // 目標 repo 不一定有這個 skill，跟 /tdd 一樣從 host 唯讀掛進去
           mounts: [{ hostPath: config.mergeSkillPath, sandboxPath: "~/.claude/skills/resolving-merge-conflicts", readonly: true }],
         })
