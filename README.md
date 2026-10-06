@@ -31,18 +31,17 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  T["timer 觸發（或 agent-runner on）"] --> L{"拿得到輪次鎖？"}
+  T["timer 觸發或<br/>agent-runner on"] --> L{"拿得到輪次鎖？"}
   L -- "拿不到：上一輪還在跑" --> X["直接結束"]
-  L -- "拿到" --> F["git fetch"]
-  F --> W["刪超過 3 天的殘留 worktree"]
-  W --> I{"sandbox image 存在？"}
-  I -- "不存在" --> IB["docker build"] --> S
-  I -- "存在" --> S["列出殘留的 agent-in-progress 和候選 issue"]
-  S --> D["decide()：決定這一輪要做的動作"]
+  L -- "拿到" --> P["準備"]
+  P --> D["decide()<br/>決定這一輪的動作"]
   D --> A1["殘留的 agent-in-progress<br/>照 crash 收尾"]
   D --> A2["agent/N 上有人手做的 commit<br/>停手、留言問人"]
   D --> A3["接單：一次一張<br/>最多 maxPerRound 張"]
 ```
+
+「準備」是 `git fetch`、刪超過 3 天的殘留 worktree、sandbox image 不存在就 `docker build`；
+接著列出殘留的 `agent-in-progress` 和候選 issue 交給 `decide()`。動作的順序是先收殘留、再問人、最後接單。
 
 `decide()`（`src/decide.ts`）是純函式：吃這一輪看到的 issue、label、branch 狀態和現在時間，吐出動作清單，不碰任何外部。
 挑單規則全在這裡：
@@ -60,19 +59,18 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  P["接單：拿掉 agent-runner<br/>貼 agent-in-progress、assign 操作者、留言"] --> R["agent/N 重設到 origin/baseBranch<br/>（有 parent spec：origin/agent/S）"]
-  R --> IM["實作 run<br/>（sandbox，乾淨 context）"]
-  IM -- "單子不清楚" --> NI["❓ needs-info"]
-  IM --> RV["reviewer run<br/>（sandbox，另一個乾淨 context）<br/>跑 code-review、可以直接修、再跑一次檢查"]
+  P["接單<br/>重設 agent/N"] --> IM["實作 run（sandbox）"]
+  IM --> RV["reviewer run<br/>review、修、再檢查"]
   RV --> C{"branch 上有 commit？"}
   C -- "沒有" --> CR["💥 crash"]
-  C -- "有" --> PU["host：push --force-with-lease<br/>開或更新 draft PR"]
-  PU --> OK{"review 後的檢查"}
-  OK -- "全過" --> PASS["✅ draft PR"]
-  OK -- "有沒過" --> WIP["🚧 [WIP] draft PR"]
-  IM -. "timeout / crash / off --now" .-> CR
-  RV -. "timeout / crash / off --now" .-> CR
+  C -- "有" --> OK{"review 後的檢查"}
+  OK -- "全過" --> PASS["✅ 全過"]
+  OK -- "有沒過" --> WIP["🚧 [WIP]"]
 ```
+
+圖只畫兩個 run 都跑完的路。實作 run 回報單子不清楚 → ❓ needs-info（不跑 reviewer run）；任一個 run timeout、crash 或遇到 `off --now` → 💥 crash。
+起點是 `origin/<baseBranch>`；spec 的 sub-issue 是 `origin/agent/<S>`（還沒建就從 `origin/<baseBranch>`），全過之後還要合進整合分支，合併有衝突時多跑一次 merge run，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
+接單時 label 和 assignee 怎麼變見[issue 的 label 怎麼變](#issue-的-label-怎麼變)；push 和開 PR 都在 host 上做。
 
 實作 run 和 reviewer run（spec 的 sub-issue 合併有衝突時還有 merge run）共用一個 `timeoutMinutes` 的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
 目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），所以 agent 要自己跑這些檢查。
@@ -130,10 +128,11 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | 時機 | runner 做什麼 |
 | --- | --- |
 | 開分支 | `agent/<A>` 從 `origin/agent/<S>` 開；遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 開 |
-| ✅ 全過 | 遠端沒有 `agent/<S>` 就先從 `origin/<baseBranch>` 建 → host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 第一張開 `agent/<S>` → `<baseBranch>` 的 draft PR（assign 操作者、body 有 `Closes #S`），之後每張更新同一張 PR 的 body → #A 留言（合併後的 commit、驗證指令）後關掉 |
+| 建整合分支 | 第一次有 sub-issue 全過或 `[WIP]` 時，遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 建；needs-info、crash 不建 |
+| ✅ 全過 | host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 還沒有開著的 `agent/<S>` → `<baseBranch>` draft PR 就開一張（assign 操作者、body 有 `Closes #S`），有就更新它的 body → #A 留言（合併後的 commit、驗證指令）後關掉。#A 之前 `[WIP]` 開過 PR 的，合併前先 push 新的 `agent/<A>`，合進去後那張 PR 會被 GitHub 標成 merged |
 | 合併有衝突 | host 上 `merge --abort`，再跑一次 sandbox（merge run，見下表），讓 agent 在 `agent/<S>` 上合、用 `resolving-merge-conflicts` 解、重跑檢查 |
 | 🚧 `[WIP]` | push `agent/<A>`，開 `[WIP]` draft PR 進 `agent/<S>`（不是 `<baseBranch>`），拿掉 assignee，#A 不關；人修好、merge 進 `agent/<S>` 後手動關 |
-| ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不建也不動 `agent/<S>` |
+| ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不動 `agent/<S>` |
 | 重做 | 從最新的 `origin/agent/<S>` 重開，拿得到期間別張合進去、或人在上面 push 的 commit |
 
 合併有衝突時的 merge run（prompt 是 `prompts/merge.md`，形狀照 sandcastle `parallel-planner` 的 merge prompt）：
@@ -156,33 +155,16 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 
 ## host 和 sandbox 各放什麼
 
-```mermaid
-flowchart LR
-  subgraph host["host（操作者的 unix user）"]
-    direction TB
-    RUN["agent-runner<br/>~/agents/agent-runner"]
-    SEC["secret 檔 secretsFile<br/>（chmod 600）"]
-    CL["bot clone<br/>botClonePath"]
-    GH["gh（操作者的登入）"]
-    ST["pnpm store<br/>pnpmStorePath"]
-  end
-  subgraph sb["Docker sandbox（每張單一個 container）"]
-    direction TB
-    AG["Claude Code"]
-    WT["worktree：agent/N"]
-  end
-  SEC -- "只傳 CLAUDE_CODE_OAUTH_TOKEN" --> AG
-  CL -- "sandcastle 開 worktree" --> WT
-  ST -- "可寫掛載" --> sb
-  RUN -- "push、開 PR、改 label、留言" --> GH
-```
-
-sandbox 裡只有一個 secret（`CLAUDE_CODE_OAUTH_TOKEN`），沒有 `GH_TOKEN`。掛進去的只有這幾樣：
-
-- pnpm store（可寫）
-- `/tdd` skill（唯讀，host 上的路徑在設定裡）
-- `resolving-merge-conflicts` skill（唯讀，只有解合併衝突的 merge run 掛）
-- 目標 repo 的 env 檔（唯讀，有檔案才掛，掛成 `frontend/.env.local`）
+| 東西 | 放在哪 | sandbox 拿得到嗎 |
+| --- | --- | --- |
+| agent-runner 本身 | host `~/agents/agent-runner` | 拿不到 |
+| `gh`（操作者的登入） | host | 拿不到：push、開 PR、改 label、留言都由 host 上的 runner 做 |
+| secret 檔 `secretsFile`（`chmod 600`） | host | 只傳 `CLAUDE_CODE_OAUTH_TOKEN`，沒有 `GH_TOKEN` |
+| bot clone `botClonePath` | host | sandcastle 從它開 worktree 給 sandbox：實作和 reviewer run 是 `agent/<N>`，merge run 是 `agent/<S>` |
+| pnpm store `pnpmStorePath` | host | 可寫掛載 |
+| `/tdd` skill（`tddSkillPath`） | host | 唯讀掛載 |
+| `resolving-merge-conflicts` skill（`mergeSkillPath`） | host | 唯讀掛載，只有 merge run 掛 |
+| 目標 repo 的 env 檔（`repoEnvPath`） | host | 唯讀掛載成 `frontend/.env.local`，有檔案才掛 |
 
 不掛 Docker socket，網路用 docker 預設 bridge。
 
@@ -190,27 +172,20 @@ image tag 是 `hash(Dockerfile + 目標 repo 的 .nvmrc)`：目標 repo 升 Node
 
 ## 開關與時間
 
-```mermaid
-stateDiagram-v2
-  direction LR
-  off: 關
-  on: 開（每 roundIntervalMinutes 一輪）
-  off --> on: agent-runner on（立刻先跑一輪）
-  on --> off: agent-runner off（正在做的那張做完）
-  on --> off: agent-runner off --now（立刻停，照 crash 收尾）
-  on --> off: 到 autoOff 的時間自動關（同 off）
-```
-
 開關就是 systemd user timer `agent-runner.timer` 有沒有在跑。timer 沒有 `[Install]`，開機不會自己打開。
 輪次間隔和自動關時間只寫在 `src/config.ts`；`on`、`update`、`install.sh` 會把它們寫成
 `~/.config/systemd/user/agent-runner{,-autooff}.timer.d/config.conf`（`src/systemd.ts`），`systemd/*.timer` 本身不寫時間。
 
-```bash
-agent-runner on          # 打開
-agent-runner off         # 正在做的那張做完就停
-agent-runner off --now   # 立刻停
-agent-runner status      # 開關、下次觸發、目前在跑哪張、runner commit
+| 指令／事件 | 開關 | 正在做的那張 |
+| --- | --- | --- |
+| `agent-runner on` | 打開，沒有一輪在跑就立刻先跑一輪，之後每 `roundIntervalMinutes` 一輪 | — |
+| `agent-runner off` | 關 | 做完才停 |
+| `agent-runner off --now` | 關 | 立刻停，照 crash 收尾 |
+| 到 `autoOff` 的時間 | 關 | 同 `off` |
 
+`agent-runner status` 看開關、下次觸發、目前在跑哪張、runner commit。
+
+```bash
 # 維護（有一輪在跑就不動手）
 agent-runner update                  # git pull --ff-only + npm ci；runner 只透過這個更新
 agent-runner rebuild                 # 同一個 tag 不用 cache 重 build image（更新 Claude CLI）
@@ -236,7 +211,7 @@ git clone <runner repo> ~/agents/agent-runner && ~/agents/agent-runner/install.s
 `install.sh` 可以重複跑，第二次不會改到任何東西；它不 build image（第一輪開頭會 build），也不打開開關。
 
 ```mermaid
-flowchart LR
+flowchart TD
   A["npm ci"] --> B["bot clone<br/>（沒有才 clone）"]
   B --> C["pnpm store<br/>mkdir -p"]
   C --> D{"secret 檔<br/>存在且 600？"}
@@ -276,7 +251,7 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `pickSearch` | 挑單的額外搜尋條件 |
 | `maxPerRound` | 一輪最多接幾張 |
 | `roundIntervalMinutes` | 打開之後每隔多久一輪 |
-| `timeoutMinutes` | 每張單的上限（實作＋review 一起算）；離自動關不到這麼久就不接新單 |
+| `timeoutMinutes` | 每張單的上限（實作、reviewer、merge run 一起算）；離自動關不到這麼久就不接新單 |
 | `autoOff` | 自動關的星期、時間、時區；也是「同一原因一晚只通知一次」的一晚的結尾 |
 | `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點（spec 的 sub-issue 從整合分支開，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)） |
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
