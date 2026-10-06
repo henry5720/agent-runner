@@ -135,13 +135,13 @@ describe("github adapter against recorded gh output", () => {
     await expect(github.createLabel("needs-info", { color: "d876e3", description: "x" })).rejects.toThrow(/HTTP 403/);
   });
 
-  it("lists only the operator's open ready-for-agent issues in the configured repo with the configured search", async () => {
+  it("lists only the operator's open agent-runner issues in the configured repo with the configured search", async () => {
     const { github, calls } = withFakeGh([{ match: ["issue", "list"], stdout: "[]" }]);
 
     await github.listCandidates();
 
     expect(calls()[0]?.argv).toEqual(
-      expect.arrayContaining(["-R", "acme/widgets", "--author", "@me", "--label", "ready-for-agent", "--state", "open", "--search", "-is:blocked no:assignee"]),
+      expect.arrayContaining(["-R", "acme/widgets", "--author", "@me", "--label", "agent-runner", "--state", "open", "--search", "-is:blocked no:assignee"]),
     );
   });
 
@@ -153,7 +153,7 @@ describe("github adapter against recorded gh output", () => {
     const argv = calls()[0]?.argv ?? [];
     expect({
       flags: ["-R", "acme/widgets", "--label", "agent-in-progress", "--state", "open"].every((f) => argv.includes(f)),
-      readyLabel: argv.includes("ready-for-agent"),
+      readyLabel: argv.includes("agent-runner"),
     }).toEqual({ flags: true, readyLabel: false });
   });
 

@@ -22,7 +22,7 @@ const pickedNumbers = (operator: string, candidates: ReturnType<typeof issue>[],
 describe("decide", () => {
   it.each([
     {
-      name: "picks the operator's own ready-for-agent issue",
+      name: "picks the operator's own agent-runner issue",
       candidates: [issue({ number: 10 })],
       picked: [10],
     },
@@ -32,9 +32,19 @@ describe("decide", () => {
       picked: [],
     },
     {
-      name: "skips issues without ready-for-agent",
+      name: "skips issues without agent-runner",
       candidates: [issue({ number: 10, labels: ["bug"] })],
       picked: [],
+    },
+    {
+      name: "skips issues that only carry ready-for-agent (it means the issue is well written, not handed to the runner)",
+      candidates: [issue({ number: 10, labels: ["ready-for-agent"] })],
+      picked: [],
+    },
+    {
+      name: "picks an agent-runner issue that also carries ready-for-agent",
+      candidates: [issue({ number: 10, labels: ["ready-for-agent", "agent-runner"] })],
+      picked: [10],
     },
     {
       name: "picks in ascending issue number order",
@@ -43,7 +53,7 @@ describe("decide", () => {
     },
     {
       name: "skips wayfinder planning issues (any wayfinder:* label)",
-      candidates: [issue({ number: 10, labels: ["ready-for-agent", "wayfinder:map"] }), issue({ number: 11, labels: ["ready-for-agent", "wayfinder:decision"] })],
+      candidates: [issue({ number: 10, labels: ["agent-runner", "wayfinder:map"] }), issue({ number: 11, labels: ["agent-runner", "wayfinder:decision"] })],
       picked: [],
     },
     {
@@ -84,7 +94,7 @@ describe("decide", () => {
   });
 
   it("counts the cap after filtering, so skipped issues do not use up a slot", () => {
-    const candidates = [issue({ number: 1, subIssueCount: 3 }), issue({ number: 2, labels: ["ready-for-agent", "wayfinder:map"] }), issue({ number: 3 }), issue({ number: 4 })];
+    const candidates = [issue({ number: 1, subIssueCount: 3 }), issue({ number: 2, labels: ["agent-runner", "wayfinder:map"] }), issue({ number: 3 }), issue({ number: 4 })];
     expect(pickedNumbers("henry5720", candidates, 1)).toEqual([3]);
   });
 });

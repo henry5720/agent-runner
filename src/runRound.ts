@@ -13,7 +13,7 @@ import type { Issue } from "./types.js";
  * decide() 決定做什麼（殘留照 crash 收尾、問人、接單，含 maxPerRound 上限、自動關前不接）；這裡只負責做。
  * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash（含做完卻沒 commit）見 endings.ts。每張單收尾後發一則 Slack（notice.ts）。
  * 重接：沿用 agent/<N> 與開著的 PR；branch 上有人手做的 commit 就停手問人。
- * 全過以外的結局都要拿掉接單時 assign 的操作者（endings.ts releaseIssue），不然人貼回 ready-for-agent 也接不到；
+ * 全過以外的結局都要拿掉接單時 assign 的操作者（endings.ts releaseIssue），不然人貼回 agent-runner 也接不到；
  * 全過的留著，issue 等 PR merge 才關。
  */
 export async function runRound(config: Config, deps: Deps): Promise<void> {
@@ -157,7 +157,7 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
 }
 
 /**
- * 重接時 agent/<N> 上有人手做的 commit：不碰 branch 和 PR，拿掉 ready-for-agent（不然每輪都會再問一次），留言請人決定。
+ * 重接時 agent/<N> 上有人手做的 commit：不碰 branch 和 PR，拿掉 agent-runner（不然每輪都會再問一次），留言請人決定。
  * 沒接單，所以沒有 agent-in-progress、也沒 assign。回傳給 Slack 的一句原因。
  */
 async function askAboutForeignCommits(config: Config, github: Deps["github"], n: number, authors: string[]): Promise<string> {

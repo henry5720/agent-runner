@@ -23,6 +23,18 @@ describe("runRound — needs-info", () => {
     });
   });
 
+  it.each([
+    { ending: "needs-info", result: needsInfo(["缺規格"]) },
+    { ending: "timeout", result: { throws: timeout() } },
+  ])("tells the human to put agent-runner (not ready-for-agent) back after a $ending ending", async ({ result }) => {
+    const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: result } });
+
+    await runRound(testConfig, deps);
+
+    const comment = deps.github.issue(42).comments[1] ?? "";
+    expect([comment.includes("`agent-runner`"), comment.includes("ready-for-agent")]).toEqual([true, false]);
+  });
+
   it("creates the needs-info label when the repo does not have it", async () => {
     const deps = fakeDeps({ issues: [issue({ number: 42 })], results: { 42: needsInfo(["缺規格"]) } });
 

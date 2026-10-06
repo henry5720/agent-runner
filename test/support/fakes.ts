@@ -7,13 +7,13 @@ import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, NewPr, Notifier,
 import type { ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
-/** 建一張預設「操作者自己開、帶 ready-for-agent、沒 parent、沒 sub-issue」的 issue。 */
+/** 建一張預設「操作者自己開、帶 agent-runner、沒 parent、沒 sub-issue」的 issue。 */
 export function issue(overrides: Partial<Issue> & { number: number }): Issue {
   return {
     title: `issue ${overrides.number}`,
     body: `body of ${overrides.number}`,
     author: "henry5720",
-    labels: ["ready-for-agent"],
+    labels: ["agent-runner"],
     assignees: [],
     parentNumber: null,
     parentLabels: [],
@@ -78,7 +78,7 @@ export class FakeGitHub implements GitHub {
   readonly repoLabels: string[];
   readonly prs: (NewPr & { number: number; url: string; state: "OPEN" | "CLOSED" | "MERGED" })[] = [];
 
-  constructor(issues: Issue[], repoLabels = ["ready-for-agent"]) {
+  constructor(issues: Issue[], repoLabels = ["agent-runner"]) {
     for (const i of issues) this.issues.set(i.number, { ...i, labels: [...i.labels], assignees: [...i.assignees], comments: [] });
     this.repoLabels = [...repoLabels];
   }
@@ -342,9 +342,9 @@ export function fakeDeps(opts: {
   } satisfies Deps;
 }
 
-/** 人要 runner 重做：拿掉 issue 上的 assignee（全過的單會留著操作者），再貼回 ready-for-agent。 */
+/** 人要 runner 重做：拿掉 issue 上的 assignee（全過的單會留著操作者），再貼回 agent-runner。 */
 export function humanRequeues(deps: ReturnType<typeof fakeDeps>, n: number): void {
   const target = deps.github.issue(n);
   target.assignees = [];
-  target.labels.push("ready-for-agent");
+  target.labels.push("agent-runner");
 }
