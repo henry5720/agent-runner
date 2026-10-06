@@ -26,6 +26,8 @@ export interface Config {
   nvmrcPath: string;
   /** `/tdd` skill 在 host 上的路徑（realpath），唯讀掛進 sandbox */
   tddSkillPath: string;
+  /** `resolving-merge-conflicts` skill 在 host 上的路徑（realpath），只在解合併衝突的 merge run 唯讀掛進 sandbox */
+  mergeSkillPath: string;
   /** runner 的 git author name（bot clone 的 repo 層 user.name） */
   gitAuthor: string;
   /** 每張單的上限（實作＋檢查＋review 全部算在內） */
@@ -58,6 +60,7 @@ export const config: Config = {
   botClonePath: join(home, "agents/teamsync-frontend"),
   nvmrcPath: "frontend/.nvmrc",
   tddSkillPath: join(home, ".config/skillshare/skills/tdd"),
+  mergeSkillPath: join(home, ".config/skillshare/skills/resolving-merge-conflicts"),
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
   autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },

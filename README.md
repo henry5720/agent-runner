@@ -74,7 +74,7 @@ flowchart TD
   RV -. "timeout / crash / off --now" .-> CR
 ```
 
-實作 run 和 reviewer run 共用一個 `timeoutMinutes` 的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
+實作 run 和 reviewer run（spec 的 sub-issue 合併有衝突時還有 merge run）共用一個 `timeoutMinutes` 的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
 目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），所以 agent 要自己跑這些檢查。
 
 ### 五種結局
@@ -131,11 +131,23 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | --- | --- |
 | 開分支 | `agent/<A>` 從 `origin/agent/<S>` 開；遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 開 |
 | ✅ 全過 | 遠端沒有 `agent/<S>` 就先從 `origin/<baseBranch>` 建 → host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 第一張開 `agent/<S>` → `<baseBranch>` 的 draft PR（assign 操作者、body 有 `Closes #S`），之後每張更新同一張 PR 的 body → #A 留言（合併後的 commit、驗證指令）後關掉 |
-| 合併有衝突 | `merge --abort`，`agent/<S>` 不動，照下一列 `[WIP]` 收尾，留言寫明是合併衝突 |
+| 合併有衝突 | host 上 `merge --abort`，再跑一次 sandbox（merge run，見下表），讓 agent 在 `agent/<S>` 上合、用 `resolving-merge-conflicts` 解、重跑檢查 |
 | 🚧 `[WIP]` | push `agent/<A>`，開 `[WIP]` draft PR 進 `agent/<S>`（不是 `<baseBranch>`），拿掉 assignee，#A 不關；人修好、merge 進 `agent/<S>` 後手動關 |
 | ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不建也不動 `agent/<S>` |
 | 重做 | 從最新的 `origin/agent/<S>` 重開，拿得到期間別張合進去、或人在上面 push 的 commit |
 
+合併有衝突時的 merge run（prompt 是 `prompts/merge.md`，形狀照 sandcastle `parallel-planner` 的 merge prompt）：
+
+| merge run 的結果 | runner 做什麼 | `agent/<S>` |
+| --- | --- | --- |
+| 解掉、檢查都過 | 本地 `agent/<S>` 同時包含 `agent/<A>` 和 `origin/agent/<S>` 才 push（不 force），照 ✅ 全過收尾；#A 的留言和整合分支 PR 那段多寫「合併時有衝突」和解完後重跑的檢查 | 推上合併結果 |
+| 解不掉、或解完檢查沒過 | 照 🚧 `[WIP]` 收尾，留言寫明是合併衝突、列出 merge run 回報的卡點 | 不動 |
+| 回報解掉，但 `agent/<S>` 上沒有合併結果 | 照 🚧 `[WIP]` 收尾，不 push | 不動 |
+| timeout／crash／`off --now` | 照 💥 crash 收尾，原因寫明是 merge run | 不動 |
+
+- merge run 跟實作、reviewer run 共用同一個 `timeoutMinutes`（整張單的上限），所以實作做太久，merge run 可能一開始就 timeout。
+- sandbox 裡沒有 GitHub 權限，push 一樣由 host 做；merge run 期間有人往遠端 `agent/<S>` push，host 的 push 會被拒（不蓋掉人的 commit），這一輪報錯結束（systemd 發 runner 失敗通知）、#A 停在 `agent-in-progress`，下一輪開頭照 crash 收尾。
+- `resolving-merge-conflicts` skill 跟 `/tdd` 一樣從 host 唯讀掛進去（設定 `mergeSkillPath`），只有 merge run 掛。
 - 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
 - PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。
 - 「有別人的 commit」只看 `agent/<A>` 相對 `origin/agent/<S>`：人在 `agent/<S>` 上 commit 會被當成基底往下做，不會讓 runner 停手。
@@ -164,10 +176,11 @@ flowchart LR
   RUN -- "push、開 PR、改 label、留言" --> GH
 ```
 
-sandbox 裡只有一個 secret（`CLAUDE_CODE_OAUTH_TOKEN`），沒有 `GH_TOKEN`。掛進去的只有三樣：
+sandbox 裡只有一個 secret（`CLAUDE_CODE_OAUTH_TOKEN`），沒有 `GH_TOKEN`。掛進去的只有這幾樣：
 
 - pnpm store（可寫）
 - `/tdd` skill（唯讀，host 上的路徑在設定裡）
+- `resolving-merge-conflicts` skill（唯讀，只有解合併衝突的 merge run 掛）
 - 目標 repo 的 env 檔（唯讀，有檔案才掛，掛成 `frontend/.env.local`）
 
 不掛 Docker socket，網路用 docker 預設 bridge。
@@ -268,7 +281,7 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
 | `model` | sandbox 裡 Claude Code 用的 model |
 | `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` `repoEnvPath` | 各種 host 路徑 |
-| `nvmrcPath` `tddSkillPath` `imageName` | image 與 sandbox 掛載 |
+| `nvmrcPath` `tddSkillPath` `mergeSkillPath` `imageName` | image 與 sandbox 掛載 |
 
 改了 `roundIntervalMinutes` 或 `autoOff`，要下一次 `agent-runner on`（或 `update`）才會寫進 systemd timer。
 
@@ -309,7 +322,7 @@ npm run typecheck
 | `src/lock.ts` `src/runState.ts` `src/power.ts` | 輪次鎖、目前在跑哪張、開關狀態 |
 | `src/cli.ts` `src/maintenance.ts` | CLI 裡要讀設定的子指令、`rebuild`／`clean-worktrees` |
 | `bin/agent-runner` | CLI（bash，底下是 `systemctl --user`） |
-| `prompts/implement.md` `prompts/review.md` | 實作與 reviewer 的 prompt |
+| `prompts/implement.md` `prompts/review.md` `prompts/merge.md` | 實作、reviewer、解合併衝突的 prompt |
 | `Dockerfile` | sandbox image |
 | `systemd/` | service 與 timer |
 | `install.sh` | 安裝／修環境 |

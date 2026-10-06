@@ -3,7 +3,7 @@
  * 測試只看最終狀態（issue 的 label／留言、PR、branch、Slack 訊息），不看呼叫次數或順序。
  */
 import type { Config } from "../../src/config.js";
-import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
+import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, MergeRequest, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
 import type { ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
@@ -60,6 +60,7 @@ export const testConfig: Config = {
   botClonePath: "/bot/widgets",
   nvmrcPath: "frontend/.nvmrc",
   tddSkillPath: "/skills/tdd",
+  mergeSkillPath: "/skills/resolving-merge-conflicts",
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
   autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
@@ -205,6 +206,13 @@ export class FakeGit implements Git {
     if (!this.remoteBranches.has(branch)) this.remoteBranches.set(branch, { base: `origin/${testConfig.baseBranch}`, fetchedFirst: true });
     this.remoteCommits.set(branch, [...(this.remoteCommits.get(branch) ?? []), this.newCommit(author)]);
   }
+  /** sandbox 裡的 agent 在本地 <target> 上 `git merge <source>`、解完衝突 commit */
+  agentMerges(target: string, source: string) {
+    const into = this.localCommits.get(target);
+    if (!into) throw new Error(`fake git: no local branch ${target}`);
+    const have = new Set(into.map((c) => c.sha));
+    this.localCommits.set(target, [...into, ...this.commitsOf(source).filter((c) => !have.has(c.sha)), this.newCommit(testConfig.gitAuthor)]);
+  }
   /** origin/<branch> 是否包含本地 <source> 上的每一顆 commit */
   remoteContains(branch: string, source: string): boolean {
     const remote = new Set((this.remoteCommits.get(branch) ?? []).map((c) => c.sha));
@@ -254,6 +262,14 @@ export class FakeGit implements Git {
     this.onPush(target);
     return { kind: "merged" as const, sha: merge.sha };
   }
+  async pushMerge(target: string, source: string) {
+    const local = this.localCommits.get(target) ?? [];
+    const has = new Set(local.map((c) => c.sha));
+    const contains = (ref: string) => this.commitsOf(ref).every((c) => has.has(c.sha));
+    if (!contains(source) || !contains(`origin/${target}`)) return { kind: "not-merged" as const };
+    await this.push(target);
+    return { kind: "merged" as const, sha: local.at(-1)!.sha };
+  }
   async listWorktrees() {
     return this.worktrees.map((w) => ({ ...w }));
   }
@@ -277,6 +293,11 @@ export class FakeSandbox implements Sandbox {
   readonly reviews: ImplementRequest[] = [];
   /** 這些單的實作 run 回報做完，卻沒在 branch 上留下任何 commit */
   readonly commitless = new Set<number>();
+  readonly merges: MergeRequest[] = [];
+  /** 每張單的 merge run 結果（key 是 sub-issue #A）；沒給就丟錯（測試沒預期會跑 merge run） */
+  readonly mergeResults: Record<number, ReviewResult | ScriptedFailure> = {};
+  /** 這些單的 merge run 回報 pass，卻沒在 agent/<S> 上合出東西 */
+  readonly mergeless = new Set<number>();
 
   constructor(
     private readonly results: Record<number, ScriptedRun>,
@@ -327,6 +348,16 @@ export class FakeSandbox implements Sandbox {
     this.reviews.push(req);
     const result = this.reviewResults[req.issue.number] ?? reviewResult();
     if ("throws" in result) throw result.throws;
+    return result;
+  }
+  async merge(req: MergeRequest) {
+    if (!this.images.has(req.imageTag)) throw new Error(`Image '${req.imageTag}' not found locally`);
+    if (req.signal.aborted) throw req.signal.reason;
+    this.merges.push(req);
+    const result = this.mergeResults[req.issue.number];
+    if (!result) throw new Error(`fake sandbox: no scripted merge result for #${req.issue.number}`);
+    if ("throws" in result) throw result.throws;
+    if (result.outcome === "pass" && this.host && !this.mergeless.has(req.issue.number)) this.host.git.agentMerges(req.branch, req.source);
     return result;
   }
 }
@@ -383,6 +414,8 @@ export function fakeDeps(opts: {
   results: Record<number, ScriptedRun>;
   /** 沒給的單 reviewer 回「沒改東西、全過」 */
   reviews?: Record<number, ReviewResult | ScriptedFailure>;
+  /** 合併有衝突時 merge run 的結果（key 是 sub-issue #A） */
+  merges?: Record<number, ReviewResult | ScriptedFailure>;
   images?: string[];
   nvmrc?: string;
   now?: Date;
@@ -393,10 +426,12 @@ export function fakeDeps(opts: {
   const clock = new FakeClock(opts.now ?? new Date("2026-10-04T15:00:00Z"));
   const github = new FakeGitHub(opts.issues);
   const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" }, (branch) => github.onPush(branch));
+  const sandbox = new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun });
+  Object.assign(sandbox.mergeResults, opts.merges);
   return {
     github,
     git,
-    sandbox: new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun }),
+    sandbox,
     notifier: new FakeNotifier(),
     clock,
     lock: new FakeLock(),
