@@ -35,6 +35,27 @@
   `prompts/implement.md` 已經這樣寫；`prompts/review.md` 也照做。
 - 附帶確認：worktree 裡 `.claude/skills/` 的 project skill 在 sandbox 內會出現在 `skills` 清單，可以被叫到。
 
+## 3. merge run 在 sandbox 裡合得到 `agent/<A>` 嗎→ **待實測**（只讀過 sandcastle 原始碼）
+
+解合併衝突的 merge run（`prompts/merge.md`）用 `branchStrategy: { type: "branch", branch: "agent/<S>" }`，
+要 agent 在 sandbox 裡 `git merge agent/<A>`。`agent/<A>` 只是 bot clone 的本地 branch，沒有另外傳進去。
+以下是讀 `node_modules/@ai-hero/sandcastle/dist/chunk-VOG34SRF.js`（`0.12.0`）的判斷，還沒在真的 docker 上跑過：
+
+- **refs 共用**（:25266-25309）：worktree 是 bot clone 的 linked worktree（`git worktree add <.sandcastle/worktrees/agent-<S>> agent/<S>`），
+  跟主 checkout 共用同一份 refs，所以 `agent/<A>` 在 worktree 裡看得到。`agent/<S>` 已經存在時直接 `worktree add` 那條 branch；
+  同一條 branch 已有 sandcastle 管的 worktree 就沿用它（乾淨的話先從 origin fast-forward，dirty 的話照原樣沿用），runner 在 merge run 前會先刪掉殘留的。
+- **`.git` 掛進 container**（:26454-26458 起的 `resolveGitMounts`）：worktree 的 `.git` 檔和它指向的主 `.git` 目錄都以 host 上的原路徑掛進去，
+  container 裡的 git 讀得到主 repo 的 objects 和 refs。
+- **`~` 展開**（:26813-26820 的 `resolveSandboxPath`）：mount 的 `sandboxPath` 開頭的 `~` 用 provider 的 `sandboxHomedir` 展開，
+  `~/.claude/skills/resolving-merge-conflicts` 會掛在 agent user 的家目錄底下，跟 `/tdd` 一樣。
+
+上線後第一次遇到合併衝突時要確認（看那一輪的 sandcastle log 和 issue 留言）：
+
+1. sandbox 裡 `git merge agent/<A> --no-edit` 找得到 ref（不是 `merge: agent/<A> - not something we can merge`）。
+2. agent 用 Skill tool 叫得到 `resolving-merge-conflicts`（log 有 `Launching skill: resolving-merge-conflicts`）。
+3. named branch 沿用既有的本地 `agent/<S>`：merge run 一開始的 HEAD 是 `origin/agent/<S>`，不是從 base 新開的 branch；
+   全過時 host push 上去的 `agent/<S>` 有一顆兩個 parent 的合併 commit。
+
 ## 沒驗到的
 
 - 真的 issue、真的 draft PR 的整條流程→ 在真機上用真的 issue 人工驗收，不在這份紀錄裡。

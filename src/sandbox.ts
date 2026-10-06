@@ -7,7 +7,7 @@ import { claudeCode, Output, run } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config } from "./config.js";
-import type { ImplementRequest, Sandbox } from "./ports.js";
+import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
 import { promptArgs } from "./promptArgs.js";
 import { implementResultSchema, reviewResultSchema } from "./result.js";
 
@@ -18,6 +18,7 @@ const DOCKERFILE = fileURLToPath(new URL("../Dockerfile", import.meta.url));
 // sandcastle 的 promptFile 對 process.cwd() 解析，一定給絕對路徑
 const IMPLEMENT_PROMPT = fileURLToPath(new URL("../prompts/implement.md", import.meta.url));
 const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.url));
+const MERGE_PROMPT = fileURLToPath(new URL("../prompts/merge.md", import.meta.url));
 
 /**
  * sandbox 裡 pnpm store 的位置（host 的 config.pnpmStorePath 掛在這裡）。
@@ -51,11 +52,17 @@ function describeFailure(err: unknown): unknown {
  * 整合驗證見 docs/verification.md 與真機實測。
  */
 export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN: string }): Sandbox {
-  /** 實作 run 與 reviewer run 共用的 run() 參數；只差 prompt 和回報的 schema */
-  function runAgent<S extends StandardSchemaV1>({ imageTag, issue, branch, baseRef, signal }: ImplementRequest, promptFile: string, schema: S) {
+  /** 實作、reviewer、merge run 共用的 run() 參數；只差 prompt、多帶的 prompt 參數、回報的 schema */
+  function runAgent<S extends StandardSchemaV1>(
+    { imageTag, issue, branch, baseRef, signal }: ImplementRequest,
+    promptFile: string,
+    schema: S,
+    extra: { args?: Record<string, string>; mounts?: { hostPath: string; sandboxPath: string; readonly: boolean }[] } = {},
+  ) {
     const mounts = [
       { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
       { hostPath: config.tddSkillPath, sandboxPath: "~/.claude/skills/tdd", readonly: true },
+      ...(extra.mounts ?? []),
       // hostPath 不存在時 docker() 會同步 throw，所以有檔才掛
       ...(existsSync(config.repoEnvPath) ? [{ hostPath: config.repoEnvPath, sandboxPath: "frontend/.env.local", readonly: true }] : []),
     ];
@@ -68,7 +75,7 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       cwd: config.botClonePath,
       branchStrategy: { type: "branch", branch, baseBranch: baseRef },
       promptFile,
-      promptArgs: promptArgs(issue, baseRef),
+      promptArgs: { ...promptArgs(issue, baseRef), ...extra.args },
       maxIterations: 1,
       output: Output.object({ tag: "result", schema }),
       signal,
@@ -112,6 +119,18 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     // 乾淨 context：另一次 run()、不帶 resumeSession；branch 已經存在，sandcastle 直接接著它的 commit 做
     async review(req) {
       return (await runAgent(req, REVIEW_PROMPT, reviewResultSchema)).output;
+    },
+
+    // branch 是整合分支 agent/<S>（host 已把本地的重設到 origin/agent/<S>）；agent/<A> 是 bot clone 的本地 branch，worktree 裡直接 merge 得到。
+    // 回報沿用 reviewer 的 schema（pass／wip、摘要、重跑的檢查）
+    async merge(req: MergeRequest) {
+      return (
+        await runAgent(req, MERGE_PROMPT, reviewResultSchema, {
+          args: { SOURCE_BRANCH: req.source, TARGET_BRANCH: req.branch },
+          // 目標 repo 不一定有這個 skill，跟 /tdd 一樣從 host 唯讀掛進去
+          mounts: [{ hostPath: config.mergeSkillPath, sandboxPath: "~/.claude/skills/resolving-merge-conflicts", readonly: true }],
+        })
+      ).output;
     },
   };
 }

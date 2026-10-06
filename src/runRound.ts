@@ -14,7 +14,8 @@ import type { Issue } from "./types.js";
  * decide() 決定做什麼（殘留照 crash 收尾、問人、接單，含 maxPerRound 上限、自動關前不接）；這裡只負責做。
  * 結局：全過／`[WIP]` 開 draft PR；needs-info、timeout／crash（含做完卻沒 commit）見 endings.ts。每張單收尾後發一則 Slack（notice.ts）。
  * spec 的 sub-issue（parent 不是 wayfinder:map）走整合分支 agent/<S>：agent/<A> 從 origin/agent/<S> 開；全過就 `git merge --no-edit`
- * 合進 agent/<S>、開或更新 agent/<S> → base 的 draft PR、留言後關 #A；`[WIP]` 和合併衝突開 PR 進 agent/<S>。
+ * 合進 agent/<S>、開或更新 agent/<S> → base 的 draft PR、留言後關 #A；`[WIP]` 開 PR 進 agent/<S>。
+ * 合併有衝突就再跑一次 sandbox（merge run）讓 agent 解：解掉而且檢查過照全過，解不掉照 `[WIP]`，timeout／crash 照 crash（resolveConflict）。
  * 重接：沿用 agent/<N> 與開著的 PR；agent/<N> 相對它的起點有人手做的 commit 就停手問人（人在 agent/<S> 上的 commit 不算）。
  * 全過以外的結局都要拿掉接單時 assign 的操作者（endings.ts releaseIssue），不然人貼回 agent-runner 也接不到；
  * 全過的留著：一般 issue 等 PR merge 才關，spec 的 sub-issue 已經關掉、留著當紀錄。
@@ -156,7 +157,7 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   // 一般 issue：agent/<N> 開 PR 進 base，等 PR merge 才關
   if (spec === null) return openAgentPr(config, deps, issue, result, review, config.baseBranch);
 
-  // spec 的 sub-issue：全過就合進整合分支 agent/<S> 並關掉；[WIP] 和合併衝突開 PR 進 agent/<S>
+  // spec 的 sub-issue：全過就合進整合分支 agent/<S> 並關掉（有衝突先交給 merge run 解）；[WIP] 和 merge run 解不掉開 PR 進 agent/<S>
   const integration = agentBranch(spec);
   await ensureIntegrationBranch(config, deps, integration);
   if (review.outcome === "wip") return openAgentPr(config, deps, issue, result, review, integration);
@@ -168,9 +169,57 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   }
   const merge = await git.mergeInto(integration, branch);
   if (merge.kind === "merged") return closeIntoSpec(config, deps, issue, spec, merge.sha, result, review);
-  // 衝突：merge 已 abort、agent/<S> 沒動，照 WIP 收尾
-  const conflict = `\`git merge --no-edit\` 合進 \`${integration}\` 有衝突，沒有合併`;
-  return openAgentPr(config, deps, issue, result, { ...review, outcome: "wip", failedChecks: [conflict] }, integration, `🤖 檢查都過了，但${conflict}`);
+  return resolveConflict(config, deps, issue, { ...ctx, spec, result, review, signal, timeout });
+}
+
+/**
+ * host 上的 `git merge` 有衝突（已 abort、agent/<S> 沒動）：再跑一次 sandbox（merge run）讓 agent 在 agent/<S> 上合、
+ * 用 resolving-merge-conflicts 解、重跑檢查。跟實作、review 共用整張單的 signal（timeoutMinutes 是整張單的上限）。
+ * 解掉而且檢查過、本地 agent/<S> 真的是合併結果 → push（不 force）後照全過收尾；解不掉、檢查沒過、沒合出東西、
+ * 期間有人往遠端 agent/<S> push 而被拒 → [WIP] 進 agent/<S>；
+ * timeout／crash → 照 crash 收尾，agent/<S> 不 push
+ */
+async function resolveConflict(
+  config: Config,
+  deps: Deps,
+  issue: Issue,
+  ctx: { tag: string; spec: number; result: ImplementResult; review: ReviewResult; signal: AbortSignal; timeout: AbortSignal },
+): Promise<Ending> {
+  const { git, sandbox } = deps;
+  const n = issue.number;
+  const branch = agentBranch(n);
+  const integration = agentBranch(ctx.spec);
+  const conflict = `\`git merge --no-edit\` 合進 \`${integration}\` 有衝突`;
+  const wip = (lead: string, failedChecks: string[]) =>
+    openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, lead);
+
+  let resolution: ReviewResult;
+  try {
+    // 上一次 merge run 解不掉時 sandcastle 會留下 dirty 的 agent/<S> worktree，不刪的話 branch -f 會失敗
+    const leftover = (await git.listWorktrees()).find((w) => w.name === worktreeName(integration));
+    if (leftover) await git.removeWorktree(leftover.path);
+    // 本地 agent/<S> 可能是上一次 merge run 留下的，從遠端最新的重來
+    await git.resetBranch(integration, `origin/${integration}`);
+    resolution = await sandbox.merge({ imageTag: ctx.tag, issue, branch: integration, baseRef: `origin/${integration}`, source: branch, signal: ctx.signal });
+  } catch (err) {
+    const why = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, ctx.timeout, config.timeoutMinutes);
+    const reason = `${conflict}，交給 agent 解的 merge run 沒跑完：${why}`;
+    const half = (await git.listWorktrees()).find((w) => w.name === worktreeName(integration));
+    const note = half
+      ? `解到一半的合併留在 \`${integration}\` 的 worktree \`${half.path}\`（沒有 push）；下次這張 spec 合併有衝突時會被清掉，最晚 3 天後自動刪。`
+      : undefined;
+    return { kind: "crash", reason, worktreePath: (await wrapUpCrash(deps, config.operator, n, reason, note)) ?? half?.path };
+  }
+
+  if (resolution.outcome === "wip") {
+    return wip(`🤖 檢查都過了，但${conflict}，交給 agent 解也沒過`, resolution.failedChecks.length ? resolution.failedChecks : ["（merge run 沒有列出是哪一項）"]);
+  }
+  const pushed = await git.pushMerge(integration, branch);
+  if (pushed.kind === "merged") return closeIntoSpec(config, deps, issue, ctx.spec, pushed.sha, ctx.result, ctx.review, resolution);
+  if (pushed.kind === "rejected") {
+    return wip(`🤖 檢查都過了，但${conflict}`, [`agent 解掉了衝突，但整合分支 \`${integration}\` 在 merge run 期間被改過，push 被拒（沒有蓋掉）`]);
+  }
+  return wip(`🤖 檢查都過了，但${conflict}`, [`merge run 回報解完，但本地 \`${integration}\` 不是 \`${branch}\` 合進 \`origin/${integration}\` 的結果，沒有 push`]);
 }
 
 /**
@@ -215,12 +264,14 @@ async function closeIntoSpec(
   sha: string,
   result: ImplementResult,
   review: ReviewResult,
+  /** 合併有衝突、由 merge run 解掉時的回報 */
+  resolution?: ReviewResult,
 ): Promise<Ending> {
   const { github } = deps;
   const n = issue.number;
   const integration = agentBranch(spec);
   const existing = await github.findOpenPr(integration);
-  const body = specPrBody(spec, existing?.body ?? null, { number: n, title: issue.title, sha, impl: result, review });
+  const body = specPrBody(spec, existing?.body ?? null, { number: n, title: issue.title, sha, impl: result, review, resolution });
   // gh 拿不到標題（或 spec 標題是空的）時也要有個 PR 標題
   const title = issue.parentTitle.trim() || `spec #${spec}`;
   const pr = existing
@@ -230,10 +281,11 @@ async function closeIntoSpec(
     n,
     [
       `🤖 全過，已合進整合分支 \`${integration}\`（合併後的 commit \`${sha}\`），整份 spec 的 draft PR：${pr.url}`,
+      ...(resolution ? ["", `合併時有衝突，由 agent 在 sandbox 裡解掉、重跑檢查後才合進去。${resolution.summary.trim() ? `\n\n${resolution.summary}` : ""}`] : []),
       "",
       "驗證（sandbox 內實際跑過）：",
       "",
-      verificationText(result, review),
+      verificationText(result, review, "###", resolution),
     ].join("\n"),
   );
   // 關掉的 issue 留著操作者當紀錄；被它擋的下一張 sub-issue 下一輪就解鎖

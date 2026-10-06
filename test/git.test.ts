@@ -147,4 +147,74 @@ describe("git adapter against a real repo", () => {
       tempWorktrees: sh(bot, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length,
     }).toEqual({ outcome: { kind: "conflict" }, unchanged: true, tempWorktrees: 1 });
   });
+
+  /** merge run：在 agent/7 的 worktree 裡合 agent/1、解掉衝突（兩邊都留）、commit；回傳 worktree */
+  function agentResolvesConflict() {
+    const wt = join(bot, ".sandcastle/worktrees/agent-7");
+    sh(bot, "branch", "-f", "--no-track", "agent/7", "origin/agent/7");
+    sh(bot, "worktree", "add", "-q", wt, "agent/7");
+    try {
+      sh(wt, "merge", "--no-edit", "agent/1");
+    } catch {
+      writeFileSync(join(wt, "same.txt"), "human\nrunner\n");
+      sh(wt, "add", "same.txt");
+      sh(wt, "commit", "-q", "--no-edit");
+    }
+    return wt;
+  }
+
+  it("pushes the integration branch a merge run resolved, without force, when it holds both sides", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    agentResolvesConflict();
+
+    const outcome = await git.pushMerge("agent/7", "agent/1");
+
+    const head = sh(remote, "rev-parse", "agent/7");
+    expect({ outcome, parents: sh(remote, "rev-list", "--parents", "-n", "1", "agent/7").split(" ").length - 1 }).toEqual({
+      outcome: { kind: "merged", sha: head },
+      parents: 2,
+    });
+  });
+
+  it("pushes nothing when the local integration branch does not contain agent/<A>", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    const before = sh(remote, "rev-parse", "agent/7");
+    sh(bot, "branch", "-f", "--no-track", "agent/7", "origin/agent/7");
+
+    const outcome = await git.pushMerge("agent/7", "agent/1");
+
+    expect({ outcome, unchanged: sh(remote, "rev-parse", "agent/7") === before }).toEqual({ outcome: { kind: "not-merged" }, unchanged: true });
+  });
+
+  it("reports a rejected push, without overwriting, when a human pushed to the integration branch during the merge run", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    agentResolvesConflict();
+    commit(human, OPERATOR, "later.txt");
+    sh(human, "push", "-q", "origin", "agent/7");
+    const humans = sh(remote, "rev-parse", "agent/7");
+
+    const outcome = await git.pushMerge("agent/7", "agent/1");
+
+    expect({ outcome, unchanged: sh(remote, "rev-parse", "agent/7") === humans }).toEqual({ outcome: { kind: "rejected" }, unchanged: true });
+  });
+
+  it("still throws on push errors other than a rejection", async () => {
+    integrationBranchWithHumanCommit("same.txt");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    agentResolvesConflict();
+    sh(bot, "remote", "set-url", "origin", join(bot, "no-such-remote.git"));
+
+    await expect(git.pushMerge("agent/7", "agent/1")).rejects.toThrow();
+  });
 });

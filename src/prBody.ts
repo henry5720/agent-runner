@@ -30,11 +30,12 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
   ].join("\n\n");
 }
 
-/** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查 */
-export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###"): string {
+/** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */
+export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###", resolution?: ReviewResult): string {
   return [
     `${heading} 實作後\n\n${commands(impl.verification) || "（agent 沒有回報任何驗證指令）"}`,
     `${heading} review 後\n\n${commands(review.verification) || "（reviewer 沒有回報任何驗證指令）"}`,
+    ...(resolution ? [`${heading} 解完合併衝突後\n\n${commands(resolution.verification) || "（merge run 沒有回報任何驗證指令）"}`] : []),
   ].join("\n\n");
 }
 
@@ -46,6 +47,8 @@ export interface MergedSubIssue {
   sha: string;
   impl: ImplementResult;
   review: ReviewResult;
+  /** 合併有衝突、由 merge run 解掉時的回報 */
+  resolution?: ReviewResult;
 }
 
 const entryPattern = /<!-- sub-issue #(\d+) -->[\s\S]*?<!-- \/sub-issue #\1 -->/g;
@@ -62,7 +65,8 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     `合併後的 commit \`${merged.sha}\``,
     merged.impl.summary,
     ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
-    verificationText(merged.impl, merged.review, "####"),
+    ...(merged.resolution ? [`**合併衝突**（由 agent 解掉）${merged.resolution.summary.trim() ? `\n\n${merged.resolution.summary}` : ""}`] : []),
+    verificationText(merged.impl, merged.review, "####", merged.resolution),
     `<!-- /sub-issue #${merged.number} -->`,
   ].join("\n\n");
   const at = entries.findIndex((e) => e.number === merged.number);

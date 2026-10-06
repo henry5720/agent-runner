@@ -48,8 +48,11 @@ export function failureReason(err: unknown, signal: AbortSignal, timeoutMinutes:
   return message.split("\n")[0]?.trim() || "未知錯誤";
 }
 
-/** timeout／crash：拿掉 agent-in-progress 與操作者 assignee、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined） */
-export async function wrapUpCrash(deps: Deps, operator: string, n: number, reason: string): Promise<string | undefined> {
+/**
+ * timeout／crash：拿掉 agent-in-progress 與操作者 assignee、留言寫原因；只有 worktree 真的還在才附路徑。回傳保留的 worktree 路徑（沒有就 undefined）。
+ * `note`：附在留言裡的額外說明（例如 merge run 解到一半的 agent/<S> worktree）
+ */
+export async function wrapUpCrash(deps: Deps, operator: string, n: number, reason: string, note?: string): Promise<string | undefined> {
   const { github, git } = deps;
   const branch = agentBranch(n);
   const kept = (await git.listWorktrees()).find((w) => w.name === worktreeName(branch));
@@ -59,7 +62,7 @@ export async function wrapUpCrash(deps: Deps, operator: string, n: number, reaso
   await releaseIssue(deps, operator, n);
   await github.comment(
     n,
-    [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, "", `不會自動重試；要重來就手動貼回 \`${RUNNER_LABEL}\`。`].join("\n"),
+    [`🤖 這張單沒做完，沒有開 PR：${reason}`, "", where, ...(note ? ["", note] : []), "", `不會自動重試；要重來就手動貼回 \`${RUNNER_LABEL}\`。`].join("\n"),
   );
   return kept?.path;
 }
