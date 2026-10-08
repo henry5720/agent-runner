@@ -72,8 +72,8 @@ flowchart TD
 起點是 `origin/<baseBranch>`；spec 的 sub-issue 是 `origin/agent/<S>`（還沒建就從 `origin/<baseBranch>`），全過之後還要合進整合分支，合併有衝突時多跑一次 merge run，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 接單時 label 和 assignee 怎麼變見[issue 的 label 怎麼變](#issue-的-label-怎麼變)；push 和開 PR 都在 host 上做。
 
-實作 run 和 reviewer run（spec 的 sub-issue 合併有衝突時還有 merge run）共用一個 `timeoutMinutes` 的上限。sandbox 裡的檢查順序是 scoped test → `typecheck` → 改到的檔案跑 eslint／prettier；
-目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），所以 agent 要自己跑這些檢查。
+實作 run 和 reviewer run（spec 的 sub-issue 合併有衝突時還有 merge run）共用一個 `timeoutMinutes` 的上限。開發流程與驗證範圍依目標 repo 的 `CLAUDE.md`，runner 不強制 TDD 或固定檢查順序。
+目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），檢查仍依 repo 對 worktree／無 hook 的規定。未執行或未涵蓋的項目須回報 `unverified`（項目與原因）；必要檢查未驗不可回報 `pass`。
 
 ### 五種結局
 
@@ -85,8 +85,8 @@ flowchart TD
 | 💥 crash／timeout | 不開 PR，留言寫原因；有留下 worktree 才附路徑（3 天後自動刪） | 拿掉 | ＋ 原因、worktree 或分支 |
 | ✋ 停手 | `agent/<N>` 上有人手做的 commit：不碰 branch 和 PR，留言問人，拿掉 `agent-runner` | 沒接單，不動 | ＋ 原因 |
 
-PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ sandbox 裡實際跑過的驗證指令和結果 → `[WIP]` 才有的「沒過的檢查」→ 署名。
-整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
+PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ `## 驗證`（sandbox 實際指令、結果、未驗項目與原因）→ `[WIP]` 才有的「沒過的檢查」→ 署名。
+整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → sub-issue 說明 → `## 驗證` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證與未驗）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
 
 ## issue 的 label 怎麼變
@@ -147,7 +147,7 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 
 - merge run 跟實作、reviewer run 共用同一個 `timeoutMinutes`（整張單的上限），所以實作做太久，merge run 可能一開始就 timeout。
 - sandbox 裡沒有 GitHub 權限，push 一樣由 host 做。
-- `resolving-merge-conflicts` skill 跟 `/tdd` 一樣從 host 唯讀掛進去（設定 `mergeSkillPath`），只有 merge run 掛。
+- `resolving-merge-conflicts` skill 從 host 唯讀掛進去（設定 `sandboxSkills` 的 `phases`），只有 merge run 掛。
 - 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
 - PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。
 - 「有別人的 commit」只看 `agent/<A>` 相對 `origin/agent/<S>`：人在 `agent/<S>` 上 commit 會被當成基底往下做，不會讓 runner 停手。
@@ -161,12 +161,24 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | `gh`（操作者的登入） | host | 拿不到：push、開 PR、改 label、留言都由 host 上的 runner 做 |
 | secret 檔 `secretsFile`（`chmod 600`） | host | 只傳 `CLAUDE_CODE_OAUTH_TOKEN`，沒有 `GH_TOKEN` |
 | bot clone `botClonePath` | host | sandcastle 從它開 worktree 給 sandbox：實作和 reviewer run 是 `agent/<N>`，merge run 是 `agent/<S>` |
+| global `CLAUDE.md` | host chezmoi 部署結果 | 唯讀掛載到 sandbox 的 `~/.claude/CLAUDE.md` |
 | pnpm store `pnpmStorePath` | host | 可寫掛載 |
-| `/tdd` skill（`tddSkillPath`） | host | 唯讀掛載 |
-| `resolving-merge-conflicts` skill（`mergeSkillPath`） | host | 唯讀掛載，只有 merge run 掛 |
+| skill allowlist（`sandboxSkills`） | host Skillshare source | 依 `phases` 唯讀掛整個 skill 目錄，包含其參考文件／scripts |
 | 目標 repo 的 env 檔（`repoEnvPath`） | host | 唯讀掛載成 `frontend/.env.local`，有檔案才掛 |
 
 不掛 Docker socket，網路用 docker 預設 bridge。
+
+### 共用規則，不共用 host 權限
+
+chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills source 與 host client targets。runner 不複製規則、不執行 chezmoi apply、Skillshare sync 或 install，只把 `globalClaudePath` 與 `sandboxSkills` 明確列出的來源唯讀掛入 `/home/agent/.claude/`。
+
+預設 allowlist：implement 有 `tdd` 與其依賴 `codebase-design`（是否使用由 repo 規則決定）；三種 run 都有 `writing-for-agents` 和 `show-me`；merge 才有 `resolving-merge-conflicts`。`dependencies` 是人工審核的 skill 依賴清單，必須在同一 phase 有 allowlist entry，不會自動加入其他 skills。repo 自己的 project skills 仍由 worktree 提供。
+
+每次 run 在呼叫 sandcastle 前檢查 global 檔、當次 skills 的目錄與 `SKILL.md`、依賴清單，缺少就拒絕啟動該 run。來源先解析 realpath，避免把 host target 的絕對 symlink 留給 container；掛完整 skill 目錄而非單一入口。這不是 skill 腳本的安全掃描，allowlist 內容仍須可信。
+
+配置不烘進 image：host 更新後，新 run 會重新解析與掛載，無須 rebuild。唯讀僅限制 container 寫入，host 在 run 期間仍可能改內容；為了讓實作、review、merge 使用同一版，整張單完成前不要執行 chezmoi apply 或 Skillshare update／pull。此版本未提供不可變 snapshot 或版本 hash。
+
+不掛整個 home、`.claude`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。`verify-in-browser` 依賴的 `playwright-cli` 尚未加入 image，所以不加入預設 allowlist；UI 真實驗收與附件上传仍需另行整合，不得用 unit tests 代替。
 
 image tag 是 `hash(Dockerfile + 目標 repo 的 .nvmrc)`：目標 repo 升 Node 版本時 tag 會變，下一輪開頭自動重 build，sandbox 不會默默跟 repo 不一致。
 
@@ -257,7 +269,7 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
 | `model` | sandbox 裡 Claude Code 用的 model |
 | `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` `repoEnvPath` | 各種 host 路徑 |
-| `nvmrcPath` `tddSkillPath` `mergeSkillPath` `imageName` | image 與 sandbox 掛載 |
+| `nvmrcPath` `globalClaudePath` `sandboxSkills` `imageName` | image、global 規則與 skill allowlist 掛載 |
 
 改了 `roundIntervalMinutes` 或 `autoOff`，要下一次 `agent-runner on`（或 `update`）才會寫進 systemd timer。
 
@@ -273,8 +285,8 @@ npm run typecheck
 ```
 
 `runRound()` 的外部邊界（`github`／`git`／`sandbox`／`notifier`／`clock`）都從 `deps` 注入，測試用 `test/support/fakes.ts` 的 in-memory 版本，
-只檢查外面看得到的結果（label、PR、留言、Slack 訊息、branch 狀態）。sandcastle 沒有對外 export 假 agent，所以 `src/sandbox.ts` 不做自動測試，
-它的行為實測記在 `docs/verification.md`。
+檢查外面看得到的結果（label、PR、留言、Slack 訊息、branch 狀態）。配置 mounts、symlink 解析、skill 依賴拒絕啟動與 PR 未驗輸出都有 unit tests；`test/sandbox.test.ts` mock SDK 檢查 adapter 接線，不會啟動 Docker。
+真實 container 行為仍須整合驗證，過去的實測記在 `docs/verification.md`，不代表本次 global 規則掛載已驗收。
 
 | 檔案 | 做什麼 |
 | --- | --- |

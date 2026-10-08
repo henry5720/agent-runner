@@ -9,6 +9,7 @@ export const implementResultSchema = z.object({
   summary: z.string(),
   /** 實際跑過的驗證指令與結果 */
   verification: z.array(z.object({ command: z.string(), result: z.string() })),
+  unverified: z.array(z.object({ item: z.string().trim().min(1), reason: z.string().trim().min(1) })),
   /** 沒過的檢查（outcome = wip） */
   failedChecks: z.array(z.string()).default([]),
   /** 卡住的問題（outcome = needs-info） */
@@ -27,6 +28,7 @@ export const reviewResultSchema = z.object({
   summary: z.string(),
   /** review 之後實際重跑的驗證指令與結果 */
   verification: z.array(z.object({ command: z.string(), result: z.string() })),
+  unverified: z.array(z.object({ item: z.string().trim().min(1), reason: z.string().trim().min(1) })),
   /** 重跑後仍沒過的檢查（outcome = wip） */
   failedChecks: z.array(z.string()).default([]),
   /** reviewer 新增或升級的依賴 */

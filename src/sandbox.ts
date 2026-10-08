@@ -1,15 +1,15 @@
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { claudeCode, Output, run } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Config } from "./config.js";
+import type { Config, SandboxPhase } from "./config.js";
 import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
 import { promptArgs } from "./promptArgs.js";
 import { implementResultSchema, reviewResultSchema } from "./result.js";
+import { sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
 
 const exec = promisify(execFile);
 
@@ -19,14 +19,6 @@ const DOCKERFILE = fileURLToPath(new URL("../Dockerfile", import.meta.url));
 const IMPLEMENT_PROMPT = fileURLToPath(new URL("../prompts/implement.md", import.meta.url));
 const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.url));
 const MERGE_PROMPT = fileURLToPath(new URL("../prompts/merge.md", import.meta.url));
-
-/**
- * sandbox 裡 pnpm store 的位置（host 的 config.pnpmStorePath 掛在這裡）。
- * 要用 `npm_config_store_dir` 明講：掛進來的目錄跟 worktree 不在同一個 filesystem，
- * pnpm 預設會在 worktree 那邊自己開一個 `.pnpm-store/`（第一次真機驗收量到 1.7G），
- * 掛進來的 store 等於沒用，worktree 也永遠 dirty。
- */
-const SANDBOX_PNPM_STORE = "/home/agent/.local/share/pnpm/store";
 
 /** 同一個 hook 點的多個 command 會平行跑，所以 install 和 chromium 串成一條。 */
 const SETUP_COMMAND = "cd frontend && timeout 300 pnpm install --frozen-lockfile && pnpm exec playwright install chromium";
@@ -48,7 +40,7 @@ function describeFailure(err: unknown): unknown {
 }
 
 /**
- * 包住 sandcastle + docker。sandcastle 沒有 export 假 agent，這層不做自動測試，
+ * 包住 sandcastle + docker。unit tests mock SDK 驗證接線，不啟動 Docker，
  * 整合驗證見 docs/verification.md 與真機實測。
  */
 export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN: string }): Sandbox {
@@ -57,15 +49,10 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     { imageTag, issue, branch, baseRef, signal }: ImplementRequest,
     promptFile: string,
     schema: S,
-    extra: { args?: Record<string, string>; mounts?: { hostPath: string; sandboxPath: string; readonly: boolean }[] } = {},
+    phase: SandboxPhase,
+    extra: { args?: Record<string, string> } = {},
   ) {
-    const mounts = [
-      { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
-      { hostPath: config.tddSkillPath, sandboxPath: "~/.claude/skills/tdd", readonly: true },
-      ...(extra.mounts ?? []),
-      // hostPath 不存在時 docker() 會同步 throw，所以有檔才掛
-      ...(existsSync(config.repoEnvPath) ? [{ hostPath: config.repoEnvPath, sandboxPath: "frontend/.env.local", readonly: true }] : []),
-    ];
+    const mounts = sandboxMounts(config, phase);
 
     return run({
       name: `agent-${issue.number}`,
@@ -113,23 +100,21 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     },
 
     async implement(req) {
-      return (await runAgent(req, IMPLEMENT_PROMPT, implementResultSchema)).output;
+      return (await runAgent(req, IMPLEMENT_PROMPT, implementResultSchema, "implement")).output;
     },
 
     // 乾淨 context：另一次 run()、不帶 resumeSession；branch 已經存在，sandcastle 直接接著它的 commit 做
     async review(req) {
-      return (await runAgent(req, REVIEW_PROMPT, reviewResultSchema)).output;
+      return (await runAgent(req, REVIEW_PROMPT, reviewResultSchema, "review")).output;
     },
 
     // branch 是整合分支 agent/<S>（host 已把本地的重設到 origin/agent/<S>）；agent/<A> 是 bot clone 的本地 branch，worktree 裡直接 merge 得到。
     // 回報沿用 reviewer 的 schema（pass／wip、摘要、重跑的檢查）
     async merge(req: MergeRequest) {
       return (
-        await runAgent(req, MERGE_PROMPT, reviewResultSchema, {
+        await runAgent(req, MERGE_PROMPT, reviewResultSchema, "merge", {
           // 不能用 SOURCE_BRANCH／TARGET_BRANCH：sandcastle 保留給自己（BUILT_IN_PROMPT_ARG_KEYS），傳了會在開 container 前丟錯
           args: { MERGE_SOURCE: req.source, MERGE_TARGET: req.branch },
-          // 目標 repo 不一定有這個 skill，跟 /tdd 一樣從 host 唯讀掛進去
-          mounts: [{ hostPath: config.mergeSkillPath, sandboxPath: "~/.claude/skills/resolving-merge-conflicts", readonly: true }],
         })
       ).output;
     },

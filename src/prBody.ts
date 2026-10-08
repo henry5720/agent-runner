@@ -2,9 +2,11 @@ import { agentBranch } from "./names.js";
 import type { ImplementResult, ReviewResult } from "./result.js";
 
 type Verification = ImplementResult["verification"];
+type Unverified = ImplementResult["unverified"];
 
 const list = (items: string[]) => items.map((i) => `- ${i}`).join("\n");
 const commands = (v: Verification) => list(v.map((c) => `\`${c.command}\` → ${c.result}`));
+const unverified = (v: Unverified) => list(v.map((c) => `${c.item}：${c.reason}`));
 
 /**
  * PR body 固定四段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
@@ -23,7 +25,7 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
   return [
     `Closes #${issueNumber}`,
     `## 變更摘要\n\n${summary}`,
-    `## 驗證（sandbox 內實際跑過）\n\n${verification}`,
+    `## 驗證\n\n${verification}`,
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
@@ -32,10 +34,17 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
 
 /** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */
 export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###", resolution?: ReviewResult): string {
+  const section = (label: string, result: ImplementResult | ReviewResult) =>
+    [
+      `${heading} ${label}`,
+      commands(result.verification) || "（沒有回報任何驗證指令）",
+      ...(result.unverified.length ? [`**未驗**\n\n${unverified(result.unverified)}`] : []),
+    ].join("\n\n");
+
   return [
-    `${heading} 實作後\n\n${commands(impl.verification) || "（agent 沒有回報任何驗證指令）"}`,
-    `${heading} review 後\n\n${commands(review.verification) || "（reviewer 沒有回報任何驗證指令）"}`,
-    ...(resolution ? [`${heading} 解完合併衝突後\n\n${commands(resolution.verification) || "（merge run 沒有回報任何驗證指令）"}`] : []),
+    section("實作後", impl),
+    section("review 後", review),
+    ...(resolution ? [section("解完合併衝突後", resolution)] : []),
   ].join("\n\n");
 }
 
@@ -66,7 +75,7 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     merged.impl.summary,
     ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
     ...(merged.resolution ? [`**合併衝突**（由 agent 解掉）${merged.resolution.summary.trim() ? `\n\n${merged.resolution.summary}` : ""}`] : []),
-    verificationText(merged.impl, merged.review, "####", merged.resolution),
+    `**驗證**\n\n${verificationText(merged.impl, merged.review, "####", merged.resolution)}`,
     `<!-- /sub-issue #${merged.number} -->`,
   ].join("\n\n");
   const at = entries.findIndex((e) => e.number === merged.number);
@@ -76,6 +85,7 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
   return [
     `Closes #${spec}`,
     `## 已合進整合分支的 sub-issue\n\nrunner 一張一張合進 \`${agentBranch(spec)}\`，每張合進來就關掉。這張 PR 一直是 draft，什麼時候轉 ready 由人決定。`,
+    `## 驗證\n\n以下依 sub-issue 列出 sandbox 實際執行的指令、結果與未驗項目。`,
     ...entries.map((e) => e.text),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,

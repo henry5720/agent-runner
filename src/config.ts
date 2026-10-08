@@ -2,6 +2,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AutoOffSchedule } from "./autoOff.js";
 
+export type SandboxPhase = "implement" | "review" | "merge";
+
+export interface SandboxSkill {
+  name: string;
+  hostPath: string;
+  phases: SandboxPhase[];
+  dependencies: string[];
+}
+
 /**
  * runner 的全部設定都在這一個檔。目前的值是第一階段：只挑操作者自己開的單，先把流程跑順。
  * 要放寬挑單、換目標 repo、換身分 → 改這裡，不改程式。
@@ -24,10 +33,8 @@ export interface Config {
   botClonePath: string;
   /** `.nvmrc` 在目標 repo 裡的路徑 */
   nvmrcPath: string;
-  /** `/tdd` skill 在 host 上的路徑（skillshare 的來源目錄），唯讀掛進 sandbox */
-  tddSkillPath: string;
-  /** `resolving-merge-conflicts` skill 在 host 上的路徑（skillshare 的來源目錄），只在解合併衝突的 merge run 唯讀掛進 sandbox */
-  mergeSkillPath: string;
+  globalClaudePath: string;
+  sandboxSkills: SandboxSkill[];
   /** runner 的 git author name（bot clone 的 repo 層 user.name） */
   gitAuthor: string;
   /** 每張單的上限（實作＋檢查＋review 全部算在內） */
@@ -59,8 +66,14 @@ export const config: Config = {
   baseBranch: "dev",
   botClonePath: join(home, "agents/teamsync-frontend"),
   nvmrcPath: "frontend/.nvmrc",
-  tddSkillPath: join(home, ".config/skillshare/skills/tdd"),
-  mergeSkillPath: join(home, ".config/skillshare/skills/resolving-merge-conflicts"),
+  globalClaudePath: join(home, ".claude/CLAUDE.md"),
+  sandboxSkills: [
+    { name: "tdd", hostPath: join(home, ".config/skillshare/skills/tdd"), phases: ["implement"], dependencies: ["codebase-design"] },
+    { name: "codebase-design", hostPath: join(home, ".config/skillshare/skills/codebase-design"), phases: ["implement"], dependencies: [] },
+    { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "merge"], dependencies: [] },
+    { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "merge"], dependencies: [] },
+    { name: "resolving-merge-conflicts", hostPath: join(home, ".config/skillshare/skills/resolving-merge-conflicts"), phases: ["merge"], dependencies: [] },
+  ],
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
   autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
