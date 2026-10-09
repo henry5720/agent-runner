@@ -3,6 +3,8 @@
 > 寫 runner 之前有兩件 sandcastle 的行為沒有把握，先拿拋棄式 repo 實測，結果記在這裡。
 > 第 3 段是之後加 merge run 時補測的，環境寫在該段開頭。
 
+本文件記拋棄式 repo 的 sandcastle 實測。第一階段另有真實 issue → draft PR、Slack、CI gate 與開關的驗收紀錄，摘要見[選型紀錄](tool-selection.md#驗證證據與範圍)。下方「沒驗到」指本文件的實測範圍。
+
 - 日期：2026-10-04，company-ec2（docker 29.8.1、node v22.16.0）
 - sandcastle `0.12.0`；sandbox 內 Claude Code `2.1.289`；model `claude-haiku-4-5`（只為了快、便宜）
 - image：用本 repo 的 `Dockerfile` build（`NODE_VERSION=22.16.0`、`AGENT_UID/GID=1000`），成功，約 2.9 GB。

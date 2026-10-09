@@ -17,6 +17,8 @@ flowchart LR
 
 ## 為什麼這樣設計
 
+建立 repo 前已比較 claude-code-action 與 Claude Code Routines，選擇 sandcastle + company-ec2 Docker。當時的限制、取捨與後續變更見[選型紀錄](docs/tool-selection.md)；目前的 Claude／Codex 替代能力見同文件的 [2026-10-09 重新評估](docs/tool-selection.md#2026-10-09-重新評估)。
+
 | 決定 | 原因 |
 | --- | --- |
 | 開關只能手動打開，到 `autoOff` 的時間自動關 | runner 不會自己開始做事；上班時間不跟人搶機器和 Claude 額度 |
@@ -315,3 +317,4 @@ npm run typecheck
 | `systemd/` | service 與 timer |
 | `install.sh` | 安裝／修環境 |
 | `docs/verification.md` | sandcastle 行為的實測紀錄 |
+| `docs/tool-selection.md` | 建立 repo 前的研究、選型理由與第一階段後的變更 |
