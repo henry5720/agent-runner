@@ -32,6 +32,14 @@ _Avoid_: E2E、UI 測試、自動驗收
 人自己開瀏覽器看結果；**瀏覽器驗收**不取代它。
 _Avoid_: PM 驗收（只在指 PM 這個角色時用）
 
+**跳過**:
+**瀏覽器驗收**判不出某一條**驗收條件**時給那一條的結果（主觀、不在畫面上、缺該角色帳號），要附原因；其他條照判。
+_Avoid_: skip 掉、略過、未驗（未驗泛指沒做，不分原因）
+
+**驗不了**:
+環境壞掉（瀏覽器工具不在、app 起不來、登入失敗），整份**瀏覽器驗收**沒辦法開始，不逐條判。
+_Avoid_: 全部 fail、全部跳過
+
 ### 一次 run 的分工
 
 **實作 run**:
@@ -45,7 +53,8 @@ _Avoid_: review run、自我驗證
 ## Relationships
 
 - runner 只跑 **AFK**；同一套驗收規則在 **HITL** 下由人呼叫，兩邊共用，只有入口不同。
-- 一張 issue 有零到多條**驗收條件**；**驗收 run** 對每一條給 pass／fail／跳過。
+- 一張 issue 有零到多條**驗收條件**；**驗收 run** 對每一條給 pass／fail／**跳過**。
+- **跳過**是單條的結果，**驗不了**是整份的結果；有**驗收條件**卻**驗不了**的單不進下一步。
 - **驗收 run** 判 fail 的條件會回到**實作 run** 再修，修的輪數有上限。
 
 ## Flagged ambiguities
@@ -53,3 +62,4 @@ _Avoid_: review run、自我驗證
 - 「人／AI」在 teamsync-frontend 的 `docs/custom-tables/ai-and-people.md` 指的是 custom-tables command 的兩種**呼叫端**（畫面與聊天室），和這裡的 **AFK**／**HITL**（流程能不能問人）不是同一件事，不混用。
 - 「for human／for agent」曾被用來區分這兩條路，但兩條路都是 agent 在做事，差別在能不能停下來問人。Resolved：改用 **AFK**／**HITL**。
 - 「runner 自己判 pass／fail」曾指**實作 run** 自己驗自己。Resolved：判定交給**驗收 run**。
+- 「驗不了」曾和「判不出來的條件」混著講。Resolved：單條判不出來是**跳過**，環境壞掉是**驗不了**。
