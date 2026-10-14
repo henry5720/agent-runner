@@ -47,11 +47,13 @@ _Avoid_: 全部 fail、全部跳過
 _Avoid_: implement phase、主 run
 
 **驗收 run**:
-在同一個 sandbox 裡另開的一次 agent 執行，只拿**驗收條件**與 diff 做**瀏覽器驗收**，不帶**實作 run** 的推理。
+另開的一次 agent 執行，不和**實作 run** 共用 sandbox；只拿**驗收條件**與 diff 做**瀏覽器驗收**，不帶**實作 run** 的推理。
 _Avoid_: review run、自我驗證
 
 ## Relationships
 
+- runner 只跑 **AFK**；同一套驗收判準在 **HITL** 下由人呼叫。兩邊共用判準，流程各自寫。
+- 一張 issue 有零到多條**驗收條件**；**驗收 run** 對每一條給 pass／fail／跳過。
 - runner 只跑 **AFK**；同一套驗收規則在 **HITL** 下由人呼叫，兩邊共用，只有入口不同。
 - 一張 issue 有零到多條**驗收條件**；**驗收 run** 對每一條給 pass／fail／**跳過**。
 - **跳過**是單條的結果，**驗不了**是整份的結果；有**驗收條件**卻**驗不了**的單不進下一步。
@@ -62,4 +64,5 @@ _Avoid_: review run、自我驗證
 - 「人／AI」在 teamsync-frontend 的 `docs/custom-tables/ai-and-people.md` 指的是 custom-tables command 的兩種**呼叫端**（畫面與聊天室），和這裡的 **AFK**／**HITL**（流程能不能問人）不是同一件事，不混用。
 - 「for human／for agent」曾被用來區分這兩條路，但兩條路都是 agent 在做事，差別在能不能停下來問人。Resolved：改用 **AFK**／**HITL**。
 - 「runner 自己判 pass／fail」曾指**實作 run** 自己驗自己。Resolved：判定交給**驗收 run**。
+- 「手動／自動」講的是誰啟動（人自己叫 skill，或**交派**給 runner），**HITL**／**AFK** 講的是流程能不能停下來問人，兩者不混用。人手動啟動、但流程中途不問人的，仍是 **AFK**；`draft` 這類「發布前先停」是在 **HITL** 裡多加檢查點，不是 **HITL** 的定義。
 - 「驗不了」曾和「判不出來的條件」混著講。Resolved：單條判不出來是**跳過**，環境壞掉是**驗不了**。
