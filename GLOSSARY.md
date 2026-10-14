@@ -39,7 +39,7 @@ _Avoid_: PM 驗收（只在指 PM 這個角色時用）
 _Avoid_: implement phase、主 run
 
 **驗收 run**:
-在同一個 sandbox 裡另開的一次 agent 執行，只拿**驗收條件**與 diff 做**瀏覽器驗收**，不帶**實作 run** 的推理。
+另開的一次 agent 執行（自己的 sandbox，不跟**實作 run** 共用），只拿**驗收條件**與 diff 做**瀏覽器驗收**，不帶**實作 run** 的推理。
 _Avoid_: review run、自我驗證
 
 ## Relationships
