@@ -180,6 +180,8 @@ chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills sou
 
 配置不烘進 image：host 更新後，新 run 會重新解析與掛載，無須 rebuild。唯讀僅限制 container 寫入，host 在 run 期間仍可能改內容；為了讓實作、review、merge 使用同一版，整張單完成前不要執行 chezmoi apply 或 Skillshare update／pull。此版本未提供不可變 snapshot 或版本 hash。
 
+目標 repo 的 project MCP 載入方式、瀏覽器條件與未驗範圍見 [sandbox MCP 參考](docs/sandbox-mcp.md)。
+
 不掛整個 home、`.claude`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。`verify-in-browser` 依賴的 `playwright-cli` 尚未加入 image，所以不加入預設 allowlist；UI 真實驗收與附件上传仍需另行整合，不得用 unit tests 代替。
 
 image tag 是 `hash(Dockerfile + 目標 repo 的 .nvmrc)`：目標 repo 升 Node 版本時 tag 會變，下一輪開頭自動重 build，sandbox 不會默默跟 repo 不一致。
