@@ -442,3 +442,63 @@ describe("runRound — spec sub-issue: what the agent gets", () => {
     expect(deps.sandbox.runs[0]?.issue).toMatchObject({ number: 42, parentTitle: "Spec: 匯出報表", parentBody: "整份 spec 的內文" });
   });
 });
+
+describe("runRound — spec sub-issue: browser verification", () => {
+  const browserReview = () => reviewResult({ browserVerify: { needed: true, reason: "匯出互動" } });
+
+  it("verifies before merging and includes the criteria table under a lower heading", async () => {
+    const deps = fakeDeps({ issues: [subIssue()], results: { 42: passResult() }, reviews: { 42: browserReview() }, verifications: { 42: verificationResult() } });
+    const verify = deps.sandbox.verify.bind(deps.sandbox);
+    deps.sandbox.verify = async (request) => {
+      expect(deps.git.remoteContains("agent/40", "agent/42")).toBe(false);
+      expect(request.branch).toBe("agent/42");
+      return verify(request);
+    };
+
+    await runRound(testConfig, deps);
+
+    expect(deps.git.remoteContains("agent/40", "agent/42")).toBe(true);
+    expect(deps.github.issue(42).state).toBe("CLOSED");
+    const body = deps.github.prs[0]?.body ?? "";
+    expect(body).toContain("### 瀏覽器驗收\n\n證據：/state/evidence/run（runner 主機本機，不在 git）");
+    expect(body).toContain("| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |");
+  });
+});
+
+
+describe("runRound — spec sub-issue: verification failures and merge conflicts", () => {
+  it("keeps failed verification out of integration and leaves the sub-issue open", async () => {
+    const deps = fakeDeps({
+      issues: [subIssue()], results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "刪除互動" } }) },
+      verifications: { 42: verificationResult({ criteria: [{ criterion: "刪除後出現 toast", observed: "沒有 toast", status: "failed", reason: "刪除後未顯示訊息", account: "E2E", evidence: ["missing.png"] }] }) },
+    });
+    deps.git.humanPushes("agent/40", "henry");
+    const before = [...deps.git.remoteCommits.get("agent/40")!];
+
+    await runRound(testConfig, deps);
+
+    expect(deps.git.remoteCommits.get("agent/40")).toEqual(before);
+    expect(deps.github.prs[0]).toMatchObject({ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(demo): do the thing" });
+    expect(deps.github.issue(42)).toMatchObject({ state: "OPEN", assignees: [] });
+    expect(deps.github.prs[0]?.body).toContain("刪除後出現 toast：刪除後未顯示訊息");
+  });
+
+  it("marks successful conflict resolution as not reverified while retaining the pre-merge table", async () => {
+    const deps = fakeDeps({
+      issues: [subIssue()], results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "刪除互動" } }) },
+      verifications: { 42: verificationResult() }, merges: { 42: reviewResult() },
+    });
+    deps.git.humanPushes("agent/40", "henry");
+    deps.git.conflicts.add("agent/42");
+
+    await runRound(testConfig, deps);
+
+    expect(deps.github.issue(42).state).toBe("CLOSED");
+    expect(deps.github.prs[0]?.body).toContain("### 瀏覽器驗收");
+    expect(deps.github.prs[0]?.body).toContain("| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |");
+    expect(deps.github.prs[0]?.body).toContain("解完合併衝突後沒有重驗");
+    expect(deps.sandbox.verifications).toHaveLength(1);
+  });
+});

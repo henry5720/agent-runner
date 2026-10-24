@@ -89,7 +89,7 @@ flowchart TD
 
 PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ `## 驗證`（sandbox 實際指令、結果、未驗項目與原因）→ `## 瀏覽器驗收` → `[WIP]` 才有的「沒過的檢查」→ 署名。
 
-`agent/<N>` 的 PR 每張都有「瀏覽器驗收」段（整合分支 PR 裡每張 sub-issue 的這一段由 #37 補）。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗且 reviewer 全過時另起驗收 run，回報逐條 `passed`／`failed`／`skipped` 的表格，列出帳號前綴、看到什麼或原因、證據相對路徑。sub-issue 因合併衝突解不掉而轉 `[WIP]` 時，這段仍照 reviewer 原本的判斷寫。
+`agent/<N>` 的 PR 每張都有「瀏覽器驗收」段；整合分支 PR 裡每張 sub-issue 也有同一種驗收段，標題降一級。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗且 reviewer 全過時另起驗收 run，回報逐條 `passed`／`failed`／`skipped` 的表格，列出帳號前綴、看到什麼或原因、證據相對路徑。sub-issue 先驗收才合併；驗收轉 `[WIP]` 就開 PR 進整合分支，不合併、不關單。合併衝突解掉後保留合併前的表格，加註「解完合併衝突後沒有重驗」；解不掉而轉 `[WIP]` 時，這段仍照 reviewer 原本的判斷寫。
 整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → sub-issue 說明 → `## 驗證` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證與未驗）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
 

@@ -29,10 +29,19 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
     `Closes #${issueNumber}`,
     `## 變更摘要\n\n${summary}`,
     `## 驗證\n\n${verification}`,
-    `## 瀏覽器驗收\n\n${browserVerifyText(reviewed)}`,
+    browserVerifySection(reviewed),
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
+  ].join("\n\n");
+}
+
+/** 一般 PR 與整合分支 sub-issue 共用，後者標題降一級。 */
+function browserVerifySection(review: ReviewResult, heading = "##", resolvedConflict = false): string {
+  return [
+    `${heading} 瀏覽器驗收`,
+    browserVerifyText(review),
+    ...(resolvedConflict ? ["解完合併衝突後沒有重驗"] : []),
   ].join("\n\n");
 }
 
@@ -89,6 +98,7 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
     ...(merged.resolution ? [`**合併衝突**（由 agent 解掉）${merged.resolution.summary.trim() ? `\n\n${merged.resolution.summary}` : ""}`] : []),
     `**驗證**\n\n${verificationText(merged.impl, merged.review, "####", merged.resolution)}`,
+    browserVerifySection(merged.review, "###", Boolean(merged.resolution)),
     `<!-- /sub-issue #${merged.number} -->`,
   ].join("\n\n");
   const at = entries.findIndex((e) => e.number === merged.number);
