@@ -89,7 +89,7 @@ flowchart TD
 
 PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ `## 驗證`（sandbox 實際指令、結果、未驗項目與原因）→ `## 瀏覽器驗收` → `[WIP]` 才有的「沒過的檢查」→ 署名。
 
-「瀏覽器驗收」段每張 PR 都有。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗時驗收 run 還沒接上，先寫 `待驗收 run 接上`。
+`agent/<N>` 的 PR 每張都有「瀏覽器驗收」段（整合分支 PR 裡每張 sub-issue 的這一段由 #37 補）。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗時驗收 run 還沒接上，先寫 `待驗收 run 接上`。sub-issue 因合併衝突解不掉而轉 `[WIP]` 時，這段仍照 reviewer 原本的判斷寫。
 整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → sub-issue 說明 → `## 驗證` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證與未驗）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
 
