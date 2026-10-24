@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir --break-system-packages ortools==9.15.6755
 RUN npx -y playwright install-deps chromium && rm -rf /var/lib/apt/lists/*
+RUN npm install --global @playwright/cli@0.1.22
 RUN corepack enable
 
 # 把 base image 的 node user 改名成 agent，UID/GID 對齊 host

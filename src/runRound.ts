@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import type { Config } from "./config.js";
 import { decide, specOf } from "./decide.js";
 import { wantedImage } from "./image.js";
@@ -142,6 +144,12 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
       return { kind: "needs-info", questions: result.questions };
     }
     review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
+    if (review.outcome === "pass" && review.browserVerify.needed) {
+      review.browserVerification = await sandbox.verify({
+        imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal,
+        evidenceDir: join(config.stateDir, "evidence", `${n}-${randomUUID()}`),
+      });
+    }
   } catch (err) {
     const reason = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, timeout, config.timeoutMinutes);
     return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, config.operator, n, reason) };

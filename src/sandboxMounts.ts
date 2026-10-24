@@ -48,8 +48,5 @@ export function sandboxMounts(config: Config, phase: SandboxPhase): SandboxMount
     { hostPath: globalClaude, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
     ...skills,
     { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
-    ...(existsSync(config.repoEnvPath)
-      ? [{ hostPath: resolveSource(config.repoEnvPath, "file"), sandboxPath: "frontend/.env.local", readonly: true }]
-      : []),
   ];
 }

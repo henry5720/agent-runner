@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig, verificationResult } from "./support/fakes.js";
 import type { ImplementResult } from "../src/result.js";
 import type { Issue } from "../src/types.js";
 
@@ -195,16 +195,17 @@ describe("runRound — browser verification section", () => {
     expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("reviewer 回 wip，沒有起驗收 run");
   });
 
-  it("leaves a placeholder for the verification run when the reviewer judged it needed", async () => {
+  it("reports evidence when the reviewer judged verification needed", async () => {
     const deps = fakeDeps({
       issues: [issue({ number: 42 })],
       results: { 42: passResult() },
       reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "改了按鈕" } }) },
+      verifications: { 42: verificationResult() },
     });
 
     await runRound(testConfig, deps);
 
-    expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("待驗收 run 接上");
+    expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("證據：/state/evidence/run（runner 主機本機，不在 git）");
   });
 
   it("places the section after 驗證 and before 沒過的檢查", async () => {

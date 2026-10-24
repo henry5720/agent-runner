@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +28,6 @@ describe("sandbox configuration adapter", () => {
     config = {
       ...testConfig,
       globalClaudePath: join(root, "CLAUDE.md"),
-      repoEnvPath: join(root, "absent.env"),
       sandboxSkills: [{ name: "resolving-merge-conflicts", hostPath: mergePath, phases: ["merge"], dependencies: [] }],
     };
     writeFileSync(config.globalClaudePath, "global rules");
@@ -49,6 +48,36 @@ describe("sandbox configuration adapter", () => {
       expect(runMounts).toContainEqual({ hostPath: config.globalClaudePath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true });
     }
     expect(mounts.map((runMounts) => runMounts.some((mount: { sandboxPath: string }) => mount.sandboxPath.endsWith("/resolving-merge-conflicts")))).toEqual([false, false, true]);
+  });
+
+  it.each([false, true])("mounts evidence and cleans authentication files even when verification fails (%s)", async (fails) => {
+    const skillPath = join(root, "verify-in-browser");
+    mkdirSync(skillPath);
+    writeFileSync(join(skillPath, "SKILL.md"), "verify");
+    writeFileSync(join(skillPath, "result.schema.json"), JSON.stringify({ type: "object" }));
+    config.sandboxSkills.push({ name: "verify-in-browser", hostPath: skillPath, phases: ["verify"], dependencies: [] });
+    const evidenceDir = join(root, "evidence");
+    mkdirSync(join(evidenceDir, "nested", ".playwright-cli"), { recursive: true });
+    writeFileSync(join(evidenceDir, "auth-E2E.json"), "secret");
+    writeFileSync(join(evidenceDir, "nested", "auth-role.json"), "secret");
+    writeFileSync(join(evidenceDir, "state.json"), "[]");
+    writeFileSync(join(evidenceDir, "toast.png"), "evidence");
+    if (fails) stubs.run.mockRejectedValue(new Error("verification failed"));
+    else stubs.run.mockResolvedValue({ output: { status: "verified", evidenceDir }, iterations: [] });
+    const result = createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: "fake-token" }).verify({ ...request(), evidenceDir });
+    if (fails) await expect(result).rejects.toThrow("verification failed");
+    else await result;
+    expect(stubs.docker.mock.calls[0]?.[0].mounts).toContainEqual({ hostPath: evidenceDir, sandboxPath: evidenceDir });
+    expect(stubs.run.mock.calls[0]?.[0]).toMatchObject({
+      promptFile: expect.stringContaining("prompts/verify.md"),
+      promptArgs: { EVIDENCE_DIR: evidenceDir, VERIFIER_MODEL: testConfig.model },
+      output: { maxRetries: 2 },
+    });
+    expect(existsSync(join(evidenceDir, "auth-E2E.json"))).toBe(false);
+    expect(existsSync(join(evidenceDir, "nested", "auth-role.json"))).toBe(false);
+    expect(existsSync(join(evidenceDir, "nested", ".playwright-cli"))).toBe(false);
+    expect(existsSync(join(evidenceDir, "state.json"))).toBe(true);
+    expect(existsSync(join(evidenceDir, "toast.png"))).toBe(true);
   });
 
   it("does not invoke docker or sandcastle when global rules are missing", async () => {

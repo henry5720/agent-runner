@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AutoOffSchedule } from "./autoOff.js";
 
-export type SandboxPhase = "implement" | "review" | "merge";
+export type SandboxPhase = "implement" | "review" | "merge" | "verify";
 
 export interface SandboxSkill {
   name: string;
@@ -49,8 +49,6 @@ export interface Config {
   imageName: string;
   /** runner 自己的 pnpm store（可寫掛進 sandbox） */
   pnpmStorePath: string;
-  /** repo env 檔；存在才唯讀掛成 frontend/.env.local */
-  repoEnvPath: string;
   /** secret 檔（KEY=VALUE） */
   secretsFile: string;
 }
@@ -70,8 +68,9 @@ export const config: Config = {
   sandboxSkills: [
     { name: "tdd", hostPath: join(home, ".config/skillshare/skills/tdd"), phases: ["implement"], dependencies: ["codebase-design"] },
     { name: "codebase-design", hostPath: join(home, ".config/skillshare/skills/codebase-design"), phases: ["implement"], dependencies: [] },
-    { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "merge"], dependencies: [] },
-    { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "merge"], dependencies: [] },
+    { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
+    { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
+    { name: "verify-in-browser", hostPath: join(home, ".config/skillshare/skills/verify-in-browser"), phases: ["verify"], dependencies: [] },
     { name: "resolving-merge-conflicts", hostPath: join(home, ".config/skillshare/skills/resolving-merge-conflicts"), phases: ["merge"], dependencies: [] },
   ],
   gitAuthor: "henry (agent)",
@@ -81,6 +80,5 @@ export const config: Config = {
   model: "claude-opus-4-8",
   imageName: "sandcastle-teamsync",
   pnpmStorePath: join(home, "agents/pnpm-store"),
-  repoEnvPath: join(home, "agents/env/teamsync-frontend.env"),
   secretsFile: join(home, ".config/agent-runner/env"),
 };

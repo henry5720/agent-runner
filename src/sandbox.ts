@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { claudeCode, Output, run } from "@ai-hero/sandcastle";
@@ -7,9 +8,10 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config, SandboxPhase } from "./config.js";
 import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
+import { browserVerificationSchema } from "./browserVerification.js";
 import { promptArgs } from "./promptArgs.js";
 import { checkResultSchema, implementResultSchema, reviewResultSchema } from "./result.js";
-import { sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
+import { type SandboxMount, sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
 
 const exec = promisify(execFile);
 
@@ -18,6 +20,7 @@ const DOCKERFILE = fileURLToPath(new URL("../Dockerfile", import.meta.url));
 // sandcastle 的 promptFile 對 process.cwd() 解析，一定給絕對路徑
 const IMPLEMENT_PROMPT = fileURLToPath(new URL("../prompts/implement.md", import.meta.url));
 const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.url));
+const VERIFY_PROMPT = fileURLToPath(new URL("../prompts/verify.md", import.meta.url));
 const MERGE_PROMPT = fileURLToPath(new URL("../prompts/merge.md", import.meta.url));
 
 /** 同一個 hook 點的多個 command 會平行跑，所以 install 和 chromium 串成一條。 */
@@ -50,9 +53,9 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     promptFile: string,
     schema: S,
     phase: SandboxPhase,
-    extra: { args?: Record<string, string> } = {},
+    extra: { args?: Record<string, string>; mounts?: SandboxMount[] } = {},
   ) {
-    const mounts = sandboxMounts(config, phase);
+    const mounts = [...sandboxMounts(config, phase), ...extra.mounts ?? []];
 
     return run({
       name: `agent-${issue.number}`,
@@ -64,11 +67,11 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       promptFile,
       promptArgs: { ...promptArgs(issue, baseRef), ...extra.args },
       maxIterations: 1,
-      output: Output.object({ tag: "result", schema }),
+      output: Output.object({ tag: "result", schema, ...(phase === "verify" ? { maxRetries: 2 } : {}) }),
       signal,
       // stream-json 在長的 Bash 期間不吐行；真正的上限交給 signal
       idleTimeoutSeconds: 1800,
-      hooks: { sandbox: { onSandboxReady: [{ command: SETUP_COMMAND, timeoutMs: 600_000 }] } },
+      hooks: { sandbox: { onSandboxReady: [{ command: phase === "verify" ? `${SETUP_COMMAND} && playwright-cli install-browser chromium` : SETUP_COMMAND, timeoutMs: 600_000 }] } },
     }).catch((err: unknown) => {
       throw describeFailure(err);
     });
@@ -108,6 +111,20 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       return (await runAgent(req, REVIEW_PROMPT, reviewResultSchema, "review")).output;
     },
 
+    async verify(req) {
+      await mkdir(req.evidenceDir, { recursive: true, mode: 0o700 });
+      try {
+        const schema = await browserVerificationSchema(config);
+        const result = await runAgent(req, VERIFY_PROMPT, schema, "verify", {
+          args: { EVIDENCE_DIR: req.evidenceDir, VERIFIER_MODEL: config.model },
+          mounts: [{ hostPath: req.evidenceDir, sandboxPath: req.evidenceDir }],
+        });
+        return { report: result.output, skillInvoked: false };
+      } finally {
+        await cleanVerificationSecrets(req.evidenceDir);
+      }
+    },
+
     // branch 是整合分支 agent/<S>（host 已把本地的重設到 origin/agent/<S>）；agent/<A> 是 bot clone 的本地 branch，worktree 裡直接 merge 得到。
     // 回報是 reviewer 去掉 browserVerify 的 schema（pass／wip、摘要、重跑的檢查）
     async merge(req: MergeRequest) {
@@ -119,4 +136,16 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
       ).output;
     },
   };
+}
+
+/** 成功、格式失敗與 timeout 都清掉可重用的登入狀態，保留證據與 staging 資料清單。 */
+async function cleanVerificationSecrets(directory: string): Promise<void> {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if ((entry.name.startsWith("auth") && entry.name.endsWith(".json")) || entry.name === ".playwright-cli") {
+      await rm(path, { recursive: true, force: true });
+    } else if (entry.isDirectory()) {
+      await cleanVerificationSecrets(path);
+    }
+  }
 }

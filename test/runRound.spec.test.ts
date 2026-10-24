@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
 import type { ReviewResult } from "../src/result.js";
-import { fakeDeps, humanRequeues, issue, passResult, reviewResult, type ScriptedFailure, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, verificationResult, reviewResult, type ScriptedFailure, testConfig } from "./support/fakes.js";
 
 /** spec #40 底下的 sub-issue #42（parent 不是 wayfinder:map） */
 const subIssue = (n = 42) =>
@@ -222,9 +222,10 @@ describe("runRound — spec sub-issue: merge conflict goes to a merge run", () =
 
   it.each([
     { browserVerify: { needed: false, reason: "只改了 CLI 參數解析" }, section: "不驗：只改了 CLI 參數解析（reviewer 判斷）" },
-    { browserVerify: { needed: true, reason: "改了按鈕" }, section: "待驗收 run 接上" },
+    { browserVerify: { needed: true, reason: "改了按鈕" }, section: "證據：/state/evidence/run（runner 主機本機，不在 git）" },
   ])("not resolved: the [WIP] PR's 瀏覽器驗收 section keeps the reviewer's own call ($section)", async ({ browserVerify, section }) => {
     const deps = conflictDeps(reviewResult({ outcome: "wip", failedChecks: ["src/report.ts 的衝突解不掉"] }), reviewResult({ browserVerify }));
+    deps.sandbox.verificationResults[42] = verificationResult();
 
     await runRound(testConfig, deps);
 

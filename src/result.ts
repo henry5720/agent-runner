@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { VerificationRunResult } from "./browserVerification.js";
 
 /** agent 在 `<result>` 標籤裡回報的結構化結果（sandcastle `Output.object()` 驗證）。 */
 export const implementResultSchema = z.object({
@@ -43,4 +44,4 @@ export const reviewResultSchema = checkResultSchema.extend({
   browserVerify: z.object({ needed: z.boolean(), reason: z.string().trim().min(1) }),
 });
 
-export type ReviewResult = z.infer<typeof reviewResultSchema>;
+export type ReviewResult = z.infer<typeof reviewResultSchema> & { browserVerification?: VerificationRunResult };
