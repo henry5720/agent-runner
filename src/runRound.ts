@@ -269,7 +269,8 @@ async function openAgentPr(
     );
   }
   await releaseIssue(deps, config.operator, n, { keepAssignee: review.outcome !== "wip" });
-  return review.outcome === "wip" ? { kind: "wip", pr, failedChecks: review.failedChecks } : { kind: "pass", pr };
+  const browserVerification = reviewed.browserVerificationFailure ? undefined : reviewed.browserVerification?.report;
+  return review.outcome === "wip" ? { kind: "wip", pr, failedChecks: review.failedChecks, browserVerification } : { kind: "pass", pr, browserVerification };
 }
 
 /** 整合分支到要用時才建（第一張全過或 [WIP]；needs-info、crash 不碰它）：從 origin/<baseBranch> 開 */
@@ -315,7 +316,7 @@ async function closeIntoSpec(
   // 關掉的 issue 留著操作者當紀錄；被它擋的下一張 sub-issue 下一輪就解鎖
   await releaseIssue(deps, config.operator, n, { keepAssignee: true });
   await github.closeIssue(n);
-  return { kind: "pass", pr };
+  return { kind: "pass", pr, browserVerification: review.browserVerificationFailure ? undefined : review.browserVerification?.report };
 }
 
 /** push branch，開或更新以它為 head 的 draft PR。重接時沿用還開著的那張；已轉 ready 的先退回 draft 再 push，不然 force push 會觸發整支 CI */

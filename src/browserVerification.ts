@@ -53,10 +53,21 @@ export async function browserVerificationSchema(config: Config) {
 const cell = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("|", "&#124;").replace(/\r\n|\r|\n/g, "<br>");
 
 export function browserVerificationText(report: BrowserVerification): string {
-  if (report.status === "unverifiable") return `證據：${report.evidenceDir}（runner 主機本機，不在 git）\n\n驗不了：${report.unverifiableReason}`;
   const rows = report.criteria.map((c) => `| ${[c.criterion, c.status, c.account ?? "—", c.reason ? `${c.observed}／${c.reason}` : c.observed, c.evidence.join("、") || "—"].map(cell).join(" | ")} |`);
+  const related = report.consoleErrors.filter((error) => error.related !== "no");
+  const unrelated = report.consoleErrors.length - related.length;
+  const console = [
+    ...(related.length ? ["console error：", ...related.map((error) => `- ${cell(error.text)}`)] : []),
+    ...(unrelated ? [`另有 ${unrelated} 則判定與本次 diff 無關`] : []),
+  ].join("\n");
   return [
     `證據：${report.evidenceDir}（runner 主機本機，不在 git）`,
-    ["| 條件 | 結果 | 帳號 | 看到什麼／原因 | 證據 |", "|---|---|---|---|---|", ...rows].join("\n"),
+    report.status === "unverifiable"
+      ? `驗不了：${report.unverifiableReason}`
+      : ["| 條件 | 結果 | 帳號 | 看到什麼／原因 | 證據 |", "|---|---|---|---|---|", ...rows].join("\n"),
+    ...(console ? [console] : []),
+    `判定 model：${report.verifier.model}${report.verifier.same_model ? "（與實作同一個 model）" : ""}`,
+    ...(report.stagingRecords ? [`在 staging 建了 ${report.stagingRecords} 筆資料，清單在 ${report.evidenceDir}/state.json`] : []),
+    ...(report.criteriaSource === "inferred" ? ["issue 沒有 ## Acceptance criteria，以下條件由 agent 從內文推出"] : []),
   ].join("\n\n");
 }

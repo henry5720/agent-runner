@@ -1,0 +1,25 @@
+{
+  "sha": "abc123",
+  "status": "verified",
+  "unverifiableReason": null,
+  "evidenceDir": "/tmp/verify-demo",
+  "verifier": {
+    "model": "claude-sonnet-4-6",
+    "same_model": true
+  },
+  "criteriaSource": "issue",
+  "criteria": [
+    {
+      "criterion": "顯示 A | B",
+      "observed": "看到 <A>\nB",
+      "status": "passed",
+      "reason": null,
+      "account": null,
+      "evidence": [
+        "after.png"
+      ]
+    }
+  ],
+  "consoleErrors": [],
+  "stagingRecords": 0
+}

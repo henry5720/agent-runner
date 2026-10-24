@@ -1,0 +1,14 @@
+{
+  "sha": "abc123",
+  "status": "unverifiable",
+  "unverifiableReason": "dev server 啟動失敗",
+  "evidenceDir": "/tmp/verify-demo",
+  "verifier": {
+    "model": "codex",
+    "same_model": false
+  },
+  "criteriaSource": "issue",
+  "criteria": [],
+  "consoleErrors": [],
+  "stagingRecords": 0
+}
