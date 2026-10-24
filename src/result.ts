@@ -26,7 +26,7 @@ export const checkResultSchema = z.object({
   outcome: z.enum(["pass", "wip"]),
   /** 這次 run 改了什麼（markdown）；沒改就空字串 */
   summary: z.string(),
-  /** 之後實際重跑的驗證指令與結果 */
+  /** 這次 run 最後重跑的驗證指令與結果 */
   verification: z.array(z.object({ command: z.string(), result: z.string() })),
   unverified: z.array(z.object({ item: z.string().trim().min(1), reason: z.string().trim().min(1) })),
   /** 重跑後仍沒過的檢查（outcome = wip） */

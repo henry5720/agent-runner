@@ -43,7 +43,7 @@ function browserVerifyText(review: ReviewResult): string {
 }
 
 /** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */
-export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###", resolution?: CheckResult): string {
+export function verificationText(impl: ImplementResult, review: CheckResult, heading = "###", resolution?: CheckResult): string {
   const section = (label: string, result: ImplementResult | CheckResult) =>
     [
       `${heading} ${label}`,

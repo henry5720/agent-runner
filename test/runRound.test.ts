@@ -168,7 +168,7 @@ describe("runRound — reviewer run", () => {
   });
 });
 
-describe("runRound — 瀏覽器驗收段", () => {
+describe("runRound — browser verification section", () => {
   const sectionOf = (body: string) => body.match(/## 瀏覽器驗收\n\n([^\n]*)/)?.[1];
 
   it("writes the reviewer's reason when it judged no browser verification is needed", async () => {
