@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prBody, specPrBody, verificationText } from "../src/prBody.js";
-import { implementResultSchema, reviewResultSchema } from "../src/result.js";
+import { checkResultSchema, implementResultSchema, reviewResultSchema } from "../src/result.js";
 import { passResult, reviewResult } from "./support/fakes.js";
 
 describe("verification reporting", () => {
@@ -43,6 +43,13 @@ describe("verification reporting", () => {
     const { unverified: reviewOmitted, ...reviewMissing } = reviewResult();
     expect(reviewResultSchema.safeParse(reviewMissing).success).toBe(false);
     expect(implementResultSchema.safeParse(passResult()).success).toBe(true);
+  });
+
+  it("requires the reviewer to judge browser verification with a reason, but not the merge run", () => {
+    const { browserVerify, ...missing } = reviewResult();
+    expect(reviewResultSchema.safeParse(missing).success).toBe(false);
+    expect(reviewResultSchema.safeParse(reviewResult({ browserVerify: { needed: false, reason: " " } })).success).toBe(false);
+    expect(checkResultSchema.safeParse(missing).success).toBe(true);
   });
 
   it("rejects empty unverified items or reasons", () => {

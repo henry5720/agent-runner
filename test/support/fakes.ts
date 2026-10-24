@@ -4,7 +4,7 @@
  */
 import type { Config } from "../../src/config.js";
 import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, MergeRequest, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
-import type { ImplementResult, ReviewResult } from "../../src/result.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "../../src/result.js";
 import type { Issue } from "../../src/types.js";
 
 /** 建一張預設「操作者自己開、帶 agent-runner、沒 parent、沒 sub-issue」的 issue。 */
@@ -39,7 +39,7 @@ export function passResult(overrides: Partial<ImplementResult> = {}): ImplementR
   };
 }
 
-/** reviewer run 的結果；預設「沒改東西、檢查全過」 */
+/** reviewer run 的結果；預設「沒改東西、檢查全過、判斷不用瀏覽器驗收」 */
 export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
   return {
     outcome: "pass",
@@ -48,6 +48,7 @@ export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResul
     unverified: [],
     failedChecks: [],
     dependencies: [],
+    browserVerify: { needed: false, reason: "沒有碰到畫面或操作" },
     ...overrides,
   };
 }
@@ -299,7 +300,7 @@ export class FakeSandbox implements Sandbox {
   readonly commitless = new Set<number>();
   readonly merges: MergeRequest[] = [];
   /** 每張單的 merge run 結果（key 是 sub-issue #A）；沒給就丟錯（測試沒預期會跑 merge run） */
-  readonly mergeResults: Record<number, ReviewResult | ScriptedFailure> = {};
+  readonly mergeResults: Record<number, CheckResult | ScriptedFailure> = {};
   /** 這些單的 merge run 回報 pass，卻沒在 agent/<S> 上合出東西 */
   readonly mergeless = new Set<number>();
   /** merge run 跑到一半時發生的事（例如人往遠端 agent/<S> push） */
@@ -428,7 +429,7 @@ export function fakeDeps(opts: {
   /** 沒給的單 reviewer 回「沒改東西、全過」 */
   reviews?: Record<number, ReviewResult | ScriptedFailure>;
   /** 合併有衝突時 merge run 的結果（key 是 sub-issue #A） */
-  merges?: Record<number, ReviewResult | ScriptedFailure>;
+  merges?: Record<number, CheckResult | ScriptedFailure>;
   images?: string[];
   nvmrc?: string;
   now?: Date;

@@ -6,7 +6,7 @@ import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, RUNNER_LABEL, worktre
 import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle, specPrBody, verificationText } from "./prBody.js";
 import type { Deps } from "./ports.js";
-import type { ImplementResult, ReviewResult } from "./result.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 
 /**
@@ -193,7 +193,7 @@ async function resolveConflict(
   const wip = (lead: string, failedChecks: string[]) =>
     openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, lead);
 
-  let resolution: ReviewResult;
+  let resolution: CheckResult;
   try {
     // 上一次 merge run 解不掉時 sandcastle 會留下 dirty 的 agent/<S> worktree，不刪的話 branch -f 會失敗
     const leftover = (await git.listWorktrees()).find((w) => w.name === worktreeName(integration));
@@ -265,7 +265,7 @@ async function closeIntoSpec(
   result: ImplementResult,
   review: ReviewResult,
   /** 合併有衝突、由 merge run 解掉時的回報 */
-  resolution?: ReviewResult,
+  resolution?: CheckResult,
 ): Promise<Ending> {
   const { github } = deps;
   const n = issue.number;

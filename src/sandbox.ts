@@ -8,7 +8,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config, SandboxPhase } from "./config.js";
 import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
 import { promptArgs } from "./promptArgs.js";
-import { implementResultSchema, reviewResultSchema } from "./result.js";
+import { checkResultSchema, implementResultSchema, reviewResultSchema } from "./result.js";
 import { sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
 
 const exec = promisify(execFile);
@@ -109,10 +109,10 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
     },
 
     // branch 是整合分支 agent/<S>（host 已把本地的重設到 origin/agent/<S>）；agent/<A> 是 bot clone 的本地 branch，worktree 裡直接 merge 得到。
-    // 回報沿用 reviewer 的 schema（pass／wip、摘要、重跑的檢查）
+    // 回報是 reviewer 去掉 browserVerify 的 schema（pass／wip、摘要、重跑的檢查）
     async merge(req: MergeRequest) {
       return (
-        await runAgent(req, MERGE_PROMPT, reviewResultSchema, "merge", {
+        await runAgent(req, MERGE_PROMPT, checkResultSchema, "merge", {
           // 不能用 SOURCE_BRANCH／TARGET_BRANCH：sandcastle 保留給自己（BUILT_IN_PROMPT_ARG_KEYS），傳了會在開 container 前丟錯
           args: { MERGE_SOURCE: req.source, MERGE_TARGET: req.branch },
         })
