@@ -3,12 +3,13 @@ import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { claudeCode, Output, run } from "@ai-hero/sandcastle";
+import { claudeCode, Output, run, StructuredOutputError } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config, SandboxPhase } from "./config.js";
 import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
-import { browserVerificationSchema } from "./browserVerification.js";
+import { browserVerificationSchema, InvalidVerificationResultError } from "./browserVerification.js";
+import { verificationSkillInvoked } from "./verificationSession.js";
 import { promptArgs } from "./promptArgs.js";
 import { checkResultSchema, implementResultSchema, reviewResultSchema } from "./result.js";
 import { type SandboxMount, sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
@@ -119,7 +120,11 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
           args: { EVIDENCE_DIR: req.evidenceDir, VERIFIER_MODEL: config.model },
           mounts: [{ hostPath: req.evidenceDir, sandboxPath: req.evidenceDir }],
         });
-        return { report: result.output, skillInvoked: false };
+        if (result.output === undefined) throw new InvalidVerificationResultError();
+        return { report: result.output, skillInvoked: await verificationSkillInvoked(result.iterations[0]?.sessionFilePath) };
+      } catch (err) {
+        if (err instanceof StructuredOutputError) throw new InvalidVerificationResultError({ cause: err });
+        throw err;
       } finally {
         await cleanVerificationSecrets(req.evidenceDir);
       }

@@ -38,9 +38,11 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
 
 /** reviewer 的判斷與驗收 run 的逐條結果。 */
 function browserVerifyText(review: ReviewResult): string {
+  if (review.browserVerificationFailure) return review.browserVerificationFailure;
+  if (review.browserVerification) return browserVerificationText(review.browserVerification.report);
   if (review.outcome === "wip") return "reviewer 回 wip，沒有起驗收 run";
   if (!review.browserVerify.needed) return `不驗：${review.browserVerify.reason}（reviewer 判斷）`;
-  return review.browserVerification ? browserVerificationText(review.browserVerification.report) : "驗收 run 沒交出合格結果";
+  return "驗收 run 沒交出合格結果";
 }
 
 /** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */

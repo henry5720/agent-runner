@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { InvalidVerificationResultError } from "./browserVerification.js";
 import type { Config } from "./config.js";
 import { decide, specOf } from "./decide.js";
 import { wantedImage } from "./image.js";
@@ -135,8 +136,8 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   // off --now 也走同一個 signal：sandcastle abort 時會 docker stop + rm 自己的 container
   const signal = AbortSignal.any([timeout, deps.stopSignal]);
   // reviewer run：乾淨 context 跑 code-review、可 commit 修正、最後重跑檢查。實作回報 wip 也跑（reviewer 可能修好）；
-  // 最後的結局以 review 後的檢查為準。兩次 run 任一次 timeout／crash 都照 crash 收尾
-  let result, review;
+  // review 後再依需求驗收，最後的結局包含驗收結果。任一次 run timeout／crash 都照 crash 收尾
+  let result: ImplementResult, review: ReviewResult;
   try {
     result = await sandbox.implement({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
     if (result.outcome === "needs-info") {
@@ -145,10 +146,21 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
     }
     review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
     if (review.outcome === "pass" && review.browserVerify.needed) {
-      review.browserVerification = await sandbox.verify({
-        imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal,
-        evidenceDir: join(config.stateDir, "evidence", `${n}-${randomUUID()}`),
-      });
+      try {
+        review.browserVerification = await sandbox.verify({
+          imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal,
+          evidenceDir: join(config.stateDir, "evidence", `${n}-${randomUUID()}`),
+        });
+        if (!review.browserVerification.skillInvoked) review.browserVerificationFailure = "驗收 run 沒有呼叫 verify-in-browser，結果不採信";
+        const failed = review.browserVerificationFailure ? [review.browserVerificationFailure] : review.browserVerification.report.criteria
+          .filter((criterion) => criterion.status === "failed")
+          .map((criterion) => `${criterion.criterion}：${criterion.reason}`);
+        if (!review.browserVerificationFailure && review.browserVerification.report.status === "unverifiable") failed.push(`瀏覽器驗收驗不了：${review.browserVerification.report.unverifiableReason}`);
+        if (failed.length) review = { ...review, outcome: "wip", failedChecks: [...review.failedChecks, ...failed] };
+      } catch (err) {
+        if (!(err instanceof InvalidVerificationResultError) || signal.aborted) throw err;
+        review = { ...review, outcome: "wip", browserVerificationFailure: err.message, failedChecks: [...review.failedChecks, err.message] };
+      }
     }
   } catch (err) {
     const reason = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, timeout, config.timeoutMinutes);

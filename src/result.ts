@@ -44,4 +44,4 @@ export const reviewResultSchema = checkResultSchema.extend({
   browserVerify: z.object({ needed: z.boolean(), reason: z.string().trim().min(1) }),
 });
 
-export type ReviewResult = z.infer<typeof reviewResultSchema> & { browserVerification?: VerificationRunResult };
+export type ReviewResult = z.infer<typeof reviewResultSchema> & { browserVerification?: VerificationRunResult; browserVerificationFailure?: string };
