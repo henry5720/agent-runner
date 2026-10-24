@@ -12,8 +12,9 @@ const unverified = (v: Unverified) => list(v.map((c) => `${c.item}：${c.reason}
  * PR body 固定五段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
  * 「瀏覽器驗收」段永遠在，分得出沒驗是 reviewer 刻意判的、還是漏掉。
  * `[WIP]` 多一段「沒過的檢查」（以 review 後那次為準）。依賴變動放在變更摘要裡；驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查。
+ * `reviewed` 是 reviewer 原本回的結果：合併衝突解不掉時 runner 會把 `review` 改成 wip，但「瀏覽器驗收」段仍照 reviewer 的判斷寫。
  */
-export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult): string {
+export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult, reviewed: ReviewResult = review): string {
   const dependencies = [...new Set([...impl.dependencies, ...review.dependencies])];
   const summary = [
     impl.summary,
@@ -27,7 +28,7 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
     `Closes #${issueNumber}`,
     `## 變更摘要\n\n${summary}`,
     `## 驗證\n\n${verification}`,
-    `## 瀏覽器驗收\n\n${browserVerifyText(review)}`,
+    `## 瀏覽器驗收\n\n${browserVerifyText(reviewed)}`,
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,

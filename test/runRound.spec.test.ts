@@ -151,8 +151,13 @@ describe("runRound — spec sub-issue: [WIP]", () => {
 
 
 describe("runRound — spec sub-issue: merge conflict goes to a merge run", () => {
-  const conflictDeps = (merge: ReviewResult | ScriptedFailure) => {
-    const deps = fakeDeps({ issues: [subIssue()], results: { 42: passResult({ prTitle: "feat(report): 匯出" }) }, merges: { 42: merge } });
+  const conflictDeps = (merge: ReviewResult | ScriptedFailure, review?: ReviewResult) => {
+    const deps = fakeDeps({
+      issues: [subIssue()],
+      results: { 42: passResult({ prTitle: "feat(report): 匯出" }) },
+      merges: { 42: merge },
+      ...(review ? { reviews: { 42: review } } : {}),
+    });
     deps.git.humanPushes("agent/40", "henry5720");
     deps.git.conflicts.add("agent/42");
     return deps;
@@ -213,6 +218,17 @@ describe("runRound — spec sub-issue: merge conflict goes to a merge run", () =
       integration: deps.git.remoteCommits.get("agent/40"),
       prs: deps.github.prs.map((p) => ({ base: p.base, head: p.head, draft: p.draft, title: p.title })),
     }).toEqual({ integration: before, prs: [{ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(report): 匯出" }] });
+  });
+
+  it.each([
+    { browserVerify: { needed: false, reason: "只改了 CLI 參數解析" }, section: "不驗：只改了 CLI 參數解析（reviewer 判斷）" },
+    { browserVerify: { needed: true, reason: "改了按鈕" }, section: "待驗收 run 接上" },
+  ])("not resolved: the [WIP] PR's 瀏覽器驗收 section keeps the reviewer's own call ($section)", async ({ browserVerify, section }) => {
+    const deps = conflictDeps(reviewResult({ outcome: "wip", failedChecks: ["src/report.ts 的衝突解不掉"] }), reviewResult({ browserVerify }));
+
+    await runRound(testConfig, deps);
+
+    expect(deps.github.prs[0]?.body.match(/## 瀏覽器驗收\n\n([^\n]*)/)?.[1]).toBe(section);
   });
 
   it("checks fail after resolving: keeps #A open and unassigned, with a comment saying it was a merge conflict and what failed", async () => {

@@ -191,7 +191,10 @@ async function resolveConflict(
   const integration = agentBranch(ctx.spec);
   const conflict = `\`git merge --no-edit\` 合進 \`${integration}\` 有衝突`;
   const wip = (lead: string, failedChecks: string[]) =>
-    openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, lead);
+    openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, {
+      wipLead: lead,
+      reviewed: ctx.review,
+    });
 
   let resolution: CheckResult;
   try {
@@ -224,7 +227,8 @@ async function resolveConflict(
 
 /**
  * 開或更新 agent/<N> 的 draft PR 進 `base`（一般 issue 是 baseBranch，spec 的 sub-issue 是整合分支）。
- * 全過的留著操作者 assignee（等 PR merge 才關）；[WIP] 留言附 PR、拿掉 assignee。`wipLead` 換掉 WIP 留言的第一句（例如合併衝突）
+ * 全過的留著操作者 assignee（等 PR merge 才關）；[WIP] 留言附 PR、拿掉 assignee。`wipLead` 換掉 WIP 留言的第一句（例如合併衝突）；
+ * `reviewed` 是 runner 把 `review` 改成 wip 之前 reviewer 原本回的結果，PR body 的「瀏覽器驗收」段照它寫
  */
 async function openAgentPr(
   config: Config,
@@ -233,11 +237,11 @@ async function openAgentPr(
   result: ImplementResult,
   review: ReviewResult,
   base: string,
-  wipLead = "🤖 有檢查沒過",
+  { wipLead = "🤖 有檢查沒過", reviewed = review }: { wipLead?: string; reviewed?: ReviewResult } = {},
 ): Promise<Ending> {
   const n = issue.number;
   // push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN
-  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review) });
+  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed) });
   if (review.outcome === "wip") {
     await deps.github.comment(
       n,
