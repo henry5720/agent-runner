@@ -497,6 +497,7 @@ describe("runRound — spec sub-issue: verification failures and merge conflicts
 
     expect(deps.github.issue(42).state).toBe("CLOSED");
     expect(deps.github.prs[0]?.body).toContain("### 瀏覽器驗收");
+    expect(deps.github.prs[0]).toMatchObject({ evidence: { directory: "/state/evidence/run", files: ["toast.png"] } });
     expect(deps.github.prs[0]?.body).toContain("| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |");
     expect(deps.github.prs[0]?.body).toContain("解完合併衝突後沒有重驗");
     expect(deps.sandbox.verifications).toHaveLength(1);

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtur
 const fakeGh = join(import.meta.dirname, "support", "fake-gh.mjs");
 
 /** 把 adapter 接到假的 gh，回傳 adapter 與「gh 被怎麼叫」的紀錄。 */
-function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: string; code?: number }[]) {
+function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: string; code?: number }[], evidenceRoot?: string) {
   const dir = mkdtempSync(join(tmpdir(), "fake-gh-"));
   const log = join(dir, "log.jsonl");
   const responsesFile = join(dir, "responses.json");
@@ -16,6 +16,7 @@ function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: stri
   writeFileSync(responsesFile, JSON.stringify(responses));
   const github = createGitHub({
     repo: "acme/widgets",
+    evidenceRoot,
     pickSearch: "-is:blocked no:assignee",
     ghBin: fakeGh,
     env: { ...process.env, FAKE_GH_LOG: log, FAKE_GH_RESPONSES: responsesFile },
@@ -30,6 +31,48 @@ function withFakeGh(responses: { match: string[]; stdout?: string; stderr?: stri
 }
 
 describe("github adapter against recorded gh output", () => {
+  it("keeps the PR and marks missing media instead of losing its result", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gh-evidence-"));
+    const { github, calls } = withFakeGh([{ match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/9\n" }], root);
+    const pr = await github.createPr({ base: "dev", head: "agent/42", title: "fix: x", body: "original", draft: true, assignee: "henry5720", evidence: { directory: join(root, "missing"), files: ["screen.png"] } });
+    expect(pr.number).toBe(9);
+    expect(calls()[0]?.bodyFile).toContain("附件來源未通過檢查");
+    expect(calls()[0]?.argv).not.toContain("--attach");
+  });
+
+  it("publishes media via native gh attach after creating the PR", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gh-evidence-"));
+    const directory = join(root, "42-run"); mkdirSync(directory);
+    writeFileSync(join(directory, "screen.png"), Buffer.from("89504e470d0a1a0a0000000000000000", "hex"));
+    const body = `## 瀏覽器驗收\n證據：${directory}（runner 主機本機，不在 git）\n| image | screen.png |`;
+    const { github, calls } = withFakeGh([
+      { match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/7\n" },
+      { match: ["pr", "edit"], stdout: "" },
+    ], root);
+    const pr = await github.createPr({ base: "dev", head: "agent/42", title: "fix: x", body, draft: true, assignee: "henry5720", evidence: { directory, files: ["screen.png"] } });
+    expect(pr.number).toBe(7);
+    expect(calls()[1]?.argv).toContain("--attach");
+    expect(calls()[1]?.argv).toContain(join(directory, "screen.png"));
+    expect(calls()[1]?.bodyFile).toContain("![screen.png]");
+  });
+
+  it("preserves partially uploaded URLs and marks an attachment failure without losing the PR", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gh-evidence-"));
+    const directory = join(root, "42-run"); mkdirSync(directory);
+    writeFileSync(join(directory, "screen.png"), Buffer.from("89504e470d0a1a0a0000000000000000", "hex"));
+    const body = `## 瀏覽器驗收\n證據：${directory}（runner 主機本機，不在 git）\n| image | screen.png |`;
+    const { github, calls } = withFakeGh([
+      { match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/8\n" },
+      { match: ["pr", "edit", "8", "-R", "acme/widgets", "--attach"], code: 1, stderr: "upload failed" },
+      { match: ["pr", "edit"], stdout: "" },
+      { match: ["pr", "view"], stdout: JSON.stringify({ body: "![existing](https://github.com/user-attachments/assets/existing)" }) },
+    ], root);
+    const pr = await github.createPr({ base: "dev", head: "agent/42", title: "fix: x", body, draft: true, assignee: "henry5720", evidence: { directory, files: ["screen.png"] } });
+    expect(pr.number).toBe(8);
+    expect(calls().at(-1)?.bodyFile).toContain("https://github.com/user-attachments/assets/existing");
+    expect(calls().at(-1)?.bodyFile).toContain("證據附件上傳未完成");
+  });
+
   it("parses `gh issue list --json` into issues with author, labels, parent (and its labels) and sub-issue count", async () => {
     const { github } = withFakeGh([
       { match: ["issue", "list"], stdout: fixture("issue-list-with-parent.trimmed.json") },

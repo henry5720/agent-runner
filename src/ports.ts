@@ -6,6 +6,11 @@ import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 import type { VerificationRunResult } from "./browserVerification.js";
 
+export interface PrEvidence {
+  directory: string;
+  files: string[];
+}
+
 export interface NewPr {
   base: string;
   head: string;
@@ -13,6 +18,7 @@ export interface NewPr {
   body: string;
   draft: boolean;
   assignee: string;
+  evidence?: PrEvidence;
 }
 
 export interface OpenPr {
@@ -49,7 +55,7 @@ export interface GitHub {
   createPr(pr: NewPr): Promise<{ number: number; url: string }>;
   /** head 是這條 branch、還開著的 PR；沒有 → null（關掉或 merge 掉的不算，重接會開新的） */
   findOpenPr(head: string): Promise<OpenPr | null>;
-  updatePr(number: number, edit: { title: string; body: string }): Promise<void>;
+  updatePr(number: number, edit: { title: string; body: string; evidence?: PrEvidence }): Promise<void>;
   /** ready → draft（`gh pr ready --undo`）；只對 ready 的 PR 呼叫 */
   markPrDraft(number: number): Promise<void>;
 }

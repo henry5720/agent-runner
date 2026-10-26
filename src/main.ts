@@ -29,7 +29,7 @@ process.once("SIGUSR2", () => {
 });
 
 await runRound(config, {
-  github: createGitHub({ repo: config.repo, pickSearch: config.pickSearch }),
+  github: createGitHub({ repo: config.repo, pickSearch: config.pickSearch, evidenceRoot: join(config.stateDir, "evidence") }),
   git: createGit({ repoPath: config.botClonePath }),
   sandbox: createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: token }),
   notifier: webhookUrl ? createSlackNotifier(webhookUrl) : consoleNotifier,
