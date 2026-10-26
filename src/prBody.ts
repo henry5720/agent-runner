@@ -1,3 +1,4 @@
+import type { AgentKind } from "./config.js";
 import { browserVerificationText } from "./browserVerification.js";
 import { agentBranch } from "./names.js";
 import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
@@ -5,17 +6,21 @@ import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 type Verification = ImplementResult["verification"];
 type Unverified = ImplementResult["unverified"];
 
+const attribution = (agent: AgentKind) => agent === "codex"
+  ? "🤖 Generated with [Codex](https://openai.com/codex/)"
+  : "🤖 Generated with [Claude Code](https://claude.com/claude-code)";
+
 const list = (items: string[]) => items.map((i) => `- ${i}`).join("\n");
 const commands = (v: Verification) => list(v.map((c) => `\`${c.command}\` → ${c.result}`));
 const unverified = (v: Unverified) => list(v.map((c) => `${c.item}：${c.reason}`));
 
 /**
- * PR body 固定五段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
+ * PR body 固定五段＋實際 agent 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
  * 「瀏覽器驗收」段永遠在，分得出沒驗是 reviewer 刻意判的、還是漏掉。
  * `[WIP]` 多一段「沒過的檢查」（以 review 後那次為準）。依賴變動放在變更摘要裡；驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查。
  * `reviewed` 是 reviewer 原本回的結果：合併衝突解不掉時 runner 會把 `review` 改成 wip，但「瀏覽器驗收」段仍照 reviewer 的判斷寫。
  */
-export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult, reviewed: ReviewResult = review): string {
+export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult, reviewed: ReviewResult = review, agent: AgentKind = "claude"): string {
   const dependencies = [...new Set([...impl.dependencies, ...review.dependencies])];
   const summary = [
     impl.summary,
@@ -32,7 +37,7 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
     browserVerifySection(reviewed),
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
     `---\n\n由 sandcastle runner 自動產生。`,
-    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
+    attribution(agent),
   ].join("\n\n");
 }
 
@@ -88,7 +93,7 @@ const entryPattern = /<!-- sub-issue #(\d+) -->[\s\S]*?<!-- \/sub-issue #\1 -->/
  * 整合分支 `agent/<S>` → base 的 draft PR body：`Closes #S` → 每張合進來的 sub-issue 一段（合進來的順序）→ 署名。
  * 每段用 HTML 註解標起來，下一張合進來時從現有 body 撈回前面的段落再整份重寫；同一張重做就換掉它那段。段落以外人改的字會被蓋掉。
  */
-export function specPrBody(spec: number, previousBody: string | null, merged: MergedSubIssue): string {
+export function specPrBody(spec: number, previousBody: string | null, merged: MergedSubIssue, agent: AgentKind = "claude"): string {
   const entries = [...(previousBody ?? "").matchAll(entryPattern)].map((m) => ({ number: Number(m[1]), text: m[0] }));
   const text = [
     `<!-- sub-issue #${merged.number} -->`,
@@ -111,7 +116,7 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     `## 驗證\n\n以下依 sub-issue 列出 sandbox 實際執行的指令、結果與未驗項目。`,
     ...entries.map((e) => e.text),
     `---\n\n由 sandcastle runner 自動產生。`,
-    `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
+    attribution(agent),
   ].join("\n\n");
 }
 

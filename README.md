@@ -1,6 +1,6 @@
 # agent-runner
 
-沒人在場的時候，把 GitHub 上貼了 `agent-runner` 的 issue 一張一張丟進 Docker sandbox 讓 Claude Code 實作，
+沒人在場的時候，把 GitHub 上貼了 `agent-runner` 的 issue 一張一張丟進 Docker sandbox 讓 Codex 或 Claude Code 實作，
 做完從 `agent/<N>` 開一張 draft PR（spec 的 sub-issue 改成合進整合分支，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)），再發一則 Slack 告訴操作者結果。sandbox 用的是 [sandcastle](https://github.com/mattpocock/sandcastle)。
 
 操作者下班前 `agent-runner on`，runner 每隔一段時間跑一輪，到隔天上班前的設定時間自己關掉；早上看 Slack 和 draft PR 就知道昨晚做了什麼。
@@ -134,7 +134,7 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | 開分支 | `agent/<A>` 從 `origin/agent/<S>` 開；遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 開 |
 | 建整合分支 | 第一次有 sub-issue 全過或 `[WIP]` 時，遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 建；needs-info、crash 不建 |
 | ✅ 全過 | host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 還沒有開著的 `agent/<S>` → `<baseBranch>` draft PR 就開一張（assign 操作者、body 有 `Closes #S`），有就更新它的 body → #A 留言（合併後的 commit、驗證指令）後關掉。#A 之前 `[WIP]` 開過 PR 的，合併前先 push 新的 `agent/<A>`，合進去後那張 PR 會被 GitHub 標成 merged |
-| 合併有衝突 | host 上 `merge --abort`，再跑一次 sandbox（merge run，見下表），讓 agent 在 `agent/<S>` 上合、用 `resolving-merge-conflicts` 解、重跑檢查 |
+| 合併有衝突 | host 上 `merge --abort`，再跑一次 sandbox（merge run，見下表），讓 agent 在 `agent/<S>` 上合、解衝突並重跑檢查 |
 | 🚧 `[WIP]` | push `agent/<A>`，開 `[WIP]` draft PR 進 `agent/<S>`（不是 `<baseBranch>`），拿掉 assignee，#A 不關；人修好、merge 進 `agent/<S>` 後手動關 |
 | ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不動 `agent/<S>` |
 | 重做 | 從最新的 `origin/agent/<S>` 重開，拿得到期間別張合進去、或人在上面 push 的 commit |
@@ -151,7 +151,7 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 
 - merge run 跟實作、reviewer、驗收 run 共用同一個 `timeoutMinutes`（整張單的上限），所以實作做太久，merge run 可能一開始就 timeout。
 - sandbox 裡沒有 GitHub 權限，push 一樣由 host 做。
-- `resolving-merge-conflicts` skill 從 host 唯讀掛進去（設定 `sandboxSkills` 的 `phases`），只有 merge run 掛。
+- merge run 依 prompt 讀兩邊的 commit、diff 與衝突檔，保留兩邊意圖後重跑檢查。
 - 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
 - PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。
 - 「有別人的 commit」只看 `agent/<A>` 相對 `origin/agent/<S>`：人在 `agent/<S>` 上 commit 會被當成基底往下做，不會讓 runner 停手。
@@ -163,9 +163,10 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | --- | --- | --- |
 | agent-runner 本身 | host `~/agents/agent-runner` | 拿不到 |
 | `gh`（操作者的登入） | host | 拿不到：push、開 PR、改 label、留言都由 host 上的 runner 做 |
-| secret 檔 `secretsFile`（`chmod 600`） | host | 只傳 `CLAUDE_CODE_OAUTH_TOKEN`，沒有 `GH_TOKEN` |
+| secret 檔 `secretsFile`（`chmod 600`） | host | 只傳所選 agent 的 `CODEX_GATEWAY_API_KEY` 或 `CLAUDE_CODE_OAUTH_TOKEN`，沒有 `GH_TOKEN` |
 | bot clone `botClonePath` | host | sandcastle 從它開 worktree 給 sandbox：實作、reviewer 和驗收 run 是 `agent/<N>`，merge run 是 `agent/<S>` |
-| global `CLAUDE.md` | host chezmoi 部署結果 | 唯讀掛載到 sandbox 的 `~/.claude/CLAUDE.md` |
+| global 規則 `globalRulesPath` | host 部署結果 | Codex 掛 `~/.codex/AGENTS.md`；Claude 掛 `~/.claude/CLAUDE.md` |
+| Codex gateway 設定 `codexConfigPath` | host 的 runner 專用檔 | Codex 才唯讀掛 `~/.codex/config.toml`；API key 從 secret 注入 |
 | pnpm store `pnpmStorePath` | host | 可寫掛載 |
 | skill allowlist（`sandboxSkills`） | host Skillshare source | 依 `phases` 唯讀掛整個 skill 目錄，包含其參考文件／scripts |
 | 目標 repo 的 env | bot clone 的 `.sandcastle/.env` | sandcastle 注入 `VITE_*`、`E2E_*`；用 `.git/info/exclude` 排除，不 commit |
@@ -174,9 +175,9 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 
 ### 共用規則，不共用 host 權限
 
-chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills source 與 host client targets。runner 不複製規則、不執行 chezmoi apply、Skillshare sync 或 install，只把 `globalClaudePath` 與 `sandboxSkills` 明確列出的來源唯讀掛入 `/home/agent/.claude/`。
+chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills source 與 host client targets。runner 不複製規則、不執行 chezmoi apply、Skillshare sync 或 install，只掛入 `globalRulesPath` 與 `sandboxSkills` 明列的來源。Codex skills 掛到 `/home/agent/.agents/skills/`，Claude skills 掛到 `/home/agent/.claude/skills/`。
 
-預設 allowlist：implement 有 `tdd` 與其依賴 `codebase-design`（是否使用由 repo 規則決定）；所有 run 都有 `writing-for-agents` 和 `show-me`；merge 才有 `resolving-merge-conflicts`；驗收才有 `verify-in-browser`。`dependencies` 是人工審核的 skill 依賴清單，必須在同一 phase 有 allowlist entry，不會自動加入其他 skills。repo 自己的 project skills 仍由 worktree 提供。
+預設 allowlist：implement 有 `tdd` 與其依賴 `codebase-design`（是否使用由 repo 規則決定）；所有 run 都有 `writing-for-agents` 和 `show-me`；review 才有 `code-review`；驗收才有 `verify-in-browser`。`dependencies` 是人工審核的 skill 依賴清單，必須在同一 phase 有 allowlist entry，不會自動加入其他 skills。repo 自己的 project skills 仍由 worktree 提供。
 
 每次 run 在呼叫 sandcastle 前檢查 global 檔、當次 skills 的目錄與 `SKILL.md`、依賴清單，缺少就拒絕啟動該 run。來源先解析 realpath，避免把 host target 的絕對 symlink 留給 container；掛完整 skill 目錄而非單一入口。這不是 skill 腳本的安全掃描，allowlist 內容仍須可信。
 
@@ -184,7 +185,7 @@ chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills sou
 
 目標 repo 的 project MCP 載入方式、瀏覽器條件與未驗範圍見 [sandbox MCP 參考](docs/sandbox-mcp.md)。
 
-不掛整個 home、`.claude`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。image 固定安裝 `@playwright/cli@0.1.22`，驗收 run 另裝 CLI 對應的 Chromium。UI 真實驗收仍須實跑，unit tests 只驗證 runner 的流程與 adapter 接線；證據原檔留在主機；host 用 `gh pr edit --attach` 把採信結果引用的圖片／影片上傳成 PR 附件，表格內直接顯示圖片。unit test 輸出、JSON、登入狀態與工具暫存不附。附件上傳未完成時保留 PR 與已成功的網址，並明寫尚需補傳。主機的 gh 須支援 `--attach`。
+不掛整個 home、`.claude`、`.codex`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。image 固定安裝 `@playwright/cli@0.1.22`，驗收 run 另裝 CLI 對應的 Chromium。UI 真實驗收仍須實跑，unit tests 只驗證 runner 的流程與 adapter 接線；證據原檔留在主機；host 用 `gh pr edit --attach` 把採信結果引用的圖片／影片上傳成 PR 附件，表格內直接顯示圖片。unit test 輸出、JSON、登入狀態與工具暫存不附。附件上傳未完成時保留 PR 與已成功的網址，並明寫尚需補傳。主機的 gh 須支援 `--attach`。
 
 驗收證據保留在 `<stateDir>/evidence/<issue>-<唯一值>`，每張單每一輪各一份，不在 git，也不跟 worktree 的三天清除規則走。驗收結束（包含失敗、timeout）會刪掉資料夾內的 `auth*.json` 與 `.playwright-cli/`，保留 `state.json`。
 
@@ -244,9 +245,14 @@ flowchart TD
 secret 檔（`secretsFile`，`chmod 600`，不進 repo）：
 
 ```bash
-CLAUDE_CODE_OAUTH_TOKEN=          # 操作者跑 `claude setup-token` 拿到的
+CODEX_GATEWAY_API_KEY=           # Codex：公司 gateway 的 API key
+CLAUDE_CODE_OAUTH_TOKEN=          # Claude：`claude setup-token`，選 Codex 時不需要
 AGENT_RUNNER_SLACK_WEBHOOK_URL=   # Slack incoming webhook（只有操作者在的 private channel）
 ```
+
+Codex 的 gateway 設定放 `codexConfigPath` 指向的 runner 專用 TOML，只保留選定 provider 的網址、Responses API 與重試設定，認證用 `env_key = "CODEX_GATEWAY_API_KEY"`。不要複製 host 整份 Codex 設定或寫入 bearer token；host MCP、hooks 與登入狀態不掛入 sandbox。格式與相容性要求見 [OpenAI 官方 gateway 文件](https://learn.chatgpt.com/docs/enterprise/roll-out-a-gateway)。image 固定安裝 Codex CLI，版本見 Dockerfile；切換 agent 前須驗證 gateway 與該 model 可用。切回 Claude 時，一起改 `agent`、`model`、`globalRulesPath` 並提供對應 secret。
+
+驗收的 skill 使用證據依 agent 判斷：Claude 檢查 Skill tool；Codex 檢查捕捉 session 中獨立讀取 allowlist `verify-in-browser/SKILL.md` 的 exec_command 與同一 call 的成功輸出。只在文字提及、讀取失敗或交不出使用證據都回 WIP；這證明 skill 已載入，不能替代畫面證據或人工校準。
 
 ### 目標 repo 要配合的事
 
@@ -275,9 +281,10 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `autoOff` | 自動關的星期、時間、時區；也是「同一原因一晚只通知一次」的一晚的結尾 |
 | `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點（spec 的 sub-issue 從整合分支開，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)） |
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
-| `model` | sandbox 裡 Claude Code 用的 model |
+| `agent` `model` | sandbox 使用的 CLI（`codex`／`claude`）與 model；實作、review、驗收與 merge 共用 |
+| `codexConfigPath` `codexEffort` | runner 專用 gateway 設定與 Codex reasoning effort |
 | `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` | 各種 host 路徑 |
-| `nvmrcPath` `globalClaudePath` `sandboxSkills` `imageName` | image、global 規則與 skill allowlist 掛載 |
+| `nvmrcPath` `globalRulesPath` `sandboxSkills` `imageName` | image、global 規則與 skill allowlist 掛載 |
 
 改了 `roundIntervalMinutes` 或 `autoOff`，要下一次 `agent-runner on`（或 `update`）才會寫進 systemd timer。
 

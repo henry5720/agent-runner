@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 RUN pip3 install --no-cache-dir --break-system-packages ortools==9.15.6755
 RUN npx -y playwright install-deps chromium && rm -rf /var/lib/apt/lists/*
-RUN npm install --global @playwright/cli@0.1.22
+RUN npm install --global @playwright/cli@0.1.22 @openai/codex@0.164.0
 RUN corepack enable
 
 # 把 base image 的 node user 改名成 agent，UID/GID 對齊 host
@@ -26,7 +26,7 @@ RUN groupmod -o -g $AGENT_GID node \
 USER ${AGENT_UID}:${AGENT_GID}
 
 # mount 目標的父目錄要以 agent 身分先建，不然 docker 會建成 root 擁有
-RUN mkdir -p /home/agent/.claude/skills /home/agent/.local/share/pnpm/store
+RUN mkdir -p /home/agent/.claude/skills /home/agent/.agents/skills /home/agent/.codex /home/agent/.local/share/pnpm/store
 
 # Claude CLI 不釘版本；更新用 `agent-runner rebuild`
 RUN curl -fsSL https://claude.ai/install.sh | bash

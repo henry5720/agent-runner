@@ -21,7 +21,7 @@ const [command, ...args] = process.argv.slice(2);
 switch (command) {
   case "rebuild": {
     // build 用不到 token
-    const sandbox = createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: "" });
+    const sandbox = createSandbox(config, {});
     const tag = await rebuildImage(config, { git: createGit({ repoPath: config.botClonePath }), sandbox });
     console.log(`rebuild：${tag}`);
     break;
