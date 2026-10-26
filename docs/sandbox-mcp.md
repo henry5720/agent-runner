@@ -1,5 +1,7 @@
 # sandbox 的 project MCP 載入與瀏覽器條件
 
+以下是 Claude Code 的實測記錄。Codex 使用獨立設定，不沿用 host MCP；此次 gateway 遷移以 playwright-cli 驗證瀏覽器能力，未把這些 Claude MCP 結論視為 Codex 的驗證結果。
+
 來源：研究票 [#13](https://github.com/henry5720/agent-runner/issues/13)；完整實驗紀錄存於該 issue 留言。
 原研究查核日：2026-10-06，sandcastle 0.12.0、Claude Code 2.1.291、Playwright 1.59.1、`@playwright/mcp` 0.0.83。
 2026-10-15 封存整理時核對 runner 主線的 `src/sandbox.ts` 與 `Dockerfile`，沒有重跑原實驗或重新查核上游文件。

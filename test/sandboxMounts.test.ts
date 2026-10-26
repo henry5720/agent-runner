@@ -12,8 +12,8 @@ describe("sandbox configuration mounts", () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "runner-config-"));
-    config = { ...testConfig, globalClaudePath: join(root, "CLAUDE.md"), sandboxSkills: [] };
-    writeFileSync(config.globalClaudePath, "規則來源");
+    config = { ...testConfig, globalRulesPath: join(root, "CLAUDE.md"), sandboxSkills: [] };
+    writeFileSync(config.globalRulesPath, "規則來源");
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -30,10 +30,26 @@ describe("sandbox configuration mounts", () => {
     const tdd = skill("tdd");
     config.sandboxSkills = [tdd];
     expect(sandboxMounts(config, "implement")).toEqual([
-      { hostPath: config.globalClaudePath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
+      { hostPath: config.globalRulesPath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
       { hostPath: tdd.hostPath, sandboxPath: "/home/agent/.claude/skills/tdd", readonly: true },
       { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
     ]);
+  });
+
+  it("mounts only the isolated Codex config, global rules and allowlisted skills", () => {
+    const verify = skill("verify-in-browser", { phases: ["verify"] });
+    config.agent = "codex";
+    config.codexConfigPath = join(root, "codex.toml");
+    config.sandboxSkills = [verify];
+    writeFileSync(config.codexConfigPath, 'model_provider = "gateway"');
+    expect(sandboxMounts(config, "verify")).toEqual([
+      { hostPath: config.globalRulesPath, sandboxPath: "/home/agent/.codex/AGENTS.md", readonly: true },
+      { hostPath: config.codexConfigPath, sandboxPath: "/home/agent/.codex/config.toml", readonly: true },
+      { hostPath: verify.hostPath, sandboxPath: "/home/agent/.agents/skills/verify-in-browser", readonly: true },
+      { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
+    ]);
+    rmSync(config.codexConfigPath);
+    expect(() => sandboxMounts(config, "verify")).toThrow("配置來源不存在");
   });
 
   it("includes merge skills only in a merge run", () => {
@@ -46,8 +62,8 @@ describe("sandbox configuration mounts", () => {
   it("resolves host symlink targets before mounting the complete skill directory", () => {
     const source = skill("tdd");
     symlinkSync(source.hostPath, join(root, "target-skill"));
-    symlinkSync(config.globalClaudePath, join(root, "target-rules"));
-    config.globalClaudePath = join(root, "target-rules");
+    symlinkSync(config.globalRulesPath, join(root, "target-rules"));
+    config.globalRulesPath = join(root, "target-rules");
     config.sandboxSkills = [{ ...source, hostPath: join(root, "target-skill") }];
     const mounts = sandboxMounts(config, "implement");
     expect(mounts[0]?.hostPath).toBe(join(root, "CLAUDE.md"));
@@ -55,9 +71,9 @@ describe("sandbox configuration mounts", () => {
   });
 
   it("rejects missing global rules and directory paths used as rules", () => {
-    rmSync(config.globalClaudePath);
+    rmSync(config.globalRulesPath);
     expect(() => sandboxMounts(config, "implement")).toThrow("配置來源不存在");
-    mkdirSync(config.globalClaudePath);
+    mkdirSync(config.globalRulesPath);
     expect(() => sandboxMounts(config, "implement")).toThrow("必須是 file");
   });
 
@@ -71,7 +87,7 @@ describe("sandbox configuration mounts", () => {
   it("rejects skill entry symlinks pointing outside the mounted directory", () => {
     const tdd = skill("tdd");
     rmSync(join(tdd.hostPath, "SKILL.md"));
-    symlinkSync(config.globalClaudePath, join(tdd.hostPath, "SKILL.md"));
+    symlinkSync(config.globalRulesPath, join(tdd.hostPath, "SKILL.md"));
     config.sandboxSkills = [tdd];
     expect(() => sandboxMounts(config, "implement")).toThrow("入口指向目錄外");
   });
@@ -100,7 +116,7 @@ describe("sandbox configuration mounts", () => {
   it("does not mount a legacy repo env file", () => {
     writeFileSync(join(root, "repo.env"), "VITE_TEST=legacy");
     expect(sandboxMounts(config, "implement")).toEqual([
-      { hostPath: config.globalClaudePath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
+      { hostPath: config.globalRulesPath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
       { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
     ]);
   });

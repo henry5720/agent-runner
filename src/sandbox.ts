@@ -3,12 +3,13 @@ import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { claudeCode, Output, run, StructuredOutputError } from "@ai-hero/sandcastle";
+import { Output, run, StructuredOutputError } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config, SandboxPhase } from "./config.js";
 import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
 import { browserVerificationSchema, InvalidVerificationResultError } from "./browserVerification.js";
+import { agentLayout, sandboxAgent } from "./sandboxAgent.js";
 import { verificationSkillInvoked } from "./verificationSession.js";
 import { promptArgs } from "./promptArgs.js";
 import { checkResultSchema, implementResultSchema, reviewResultSchema } from "./result.js";
@@ -47,7 +48,7 @@ function describeFailure(err: unknown): unknown {
  * 包住 sandcastle + docker。unit tests mock SDK 驗證接線，不啟動 Docker，
  * 整合驗證見 docs/verification.md 與真機實測。
  */
-export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN: string }): Sandbox {
+export function createSandbox(config: Config, secrets: Record<string, string>): Sandbox {
   /** 實作、reviewer、merge run 共用的 run() 參數；只差 prompt、多帶的 prompt 參數、回報的 schema */
   function runAgent<S extends StandardSchemaV1>(
     { imageTag, issue, branch, baseRef, signal }: ImplementRequest,
@@ -60,13 +61,13 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
 
     return run({
       name: `agent-${issue.number}`,
-      // sandbox 裡唯一的 secret；沒有 GH_TOKEN，push 和開 PR 在 host 做
-      agent: claudeCode(config.model, { env: { CLAUDE_CODE_OAUTH_TOKEN: secrets.CLAUDE_CODE_OAUTH_TOKEN } }),
+      // 只帶所選 agent 的憑證；沒有 GH_TOKEN，push 和開 PR 在 host 做
+      agent: sandboxAgent(config, secrets),
       sandbox: docker({ imageName: imageTag, cpus: 4, mounts, env: { npm_config_store_dir: SANDBOX_PNPM_STORE } }),
       cwd: config.botClonePath,
       branchStrategy: { type: "branch", branch, baseBranch: baseRef },
       promptFile,
-      promptArgs: { ...promptArgs(issue, baseRef), ...extra.args },
+      promptArgs: { ...promptArgs(issue, baseRef), ...agentLayout(config.agent).promptArgs, ...extra.args },
       maxIterations: 1,
       output: Output.object({ tag: "result", schema, ...(phase === "verify" ? { maxRetries: 2 } : {}) }),
       signal,
@@ -121,7 +122,7 @@ export function createSandbox(config: Config, secrets: { CLAUDE_CODE_OAUTH_TOKEN
           mounts: [{ hostPath: req.evidenceDir, sandboxPath: req.evidenceDir }],
         });
         if (result.output === undefined) throw new InvalidVerificationResultError();
-        return { report: result.output, skillInvoked: await verificationSkillInvoked(result.iterations[0]?.sessionFilePath) };
+        return { report: result.output, skillInvoked: await verificationSkillInvoked(result.iterations[0]?.sessionFilePath, config.agent) };
       } catch (err) {
         if (err instanceof StructuredOutputError) throw new InvalidVerificationResultError({ cause: err });
         throw err;

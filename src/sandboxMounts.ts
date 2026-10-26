@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { agentLayout } from "./sandboxAgent.js";
 import type { Config, SandboxPhase } from "./config.js";
 
 export const SANDBOX_PNPM_STORE = "/home/agent/.local/share/pnpm/store";
@@ -21,7 +22,8 @@ function resolveSource(path: string, kind: "file" | "directory"): string {
 }
 
 export function sandboxMounts(config: Config, phase: SandboxPhase): SandboxMount[] {
-  const globalClaude = resolveSource(config.globalClaudePath, "file");
+  const layout = agentLayout(config.agent);
+  const globalRules = resolveSource(config.globalRulesPath, "file");
   const names = new Set<string>();
   for (const skill of config.sandboxSkills) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(skill.name) || names.has(skill.name)) {
@@ -42,10 +44,11 @@ export function sandboxMounts(config: Config, phase: SandboxPhase): SandboxMount
     if (!entry.startsWith(`${source}/`)) {
       throw new Error(`sandbox skill 入口指向目錄外：${skill.name}`);
     }
-    return { hostPath: source, sandboxPath: `/home/agent/.claude/skills/${skill.name}`, readonly: true };
+    return { hostPath: source, sandboxPath: `${layout.skillsDir}/${skill.name}`, readonly: true };
   });
   return [
-    { hostPath: globalClaude, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
+    { hostPath: globalRules, sandboxPath: layout.rulesPath, readonly: true },
+    ...(config.agent === "codex" ? [{ hostPath: resolveSource(config.codexConfigPath, "file"), sandboxPath: "/home/agent/.codex/config.toml", readonly: true }] : []),
     ...skills,
     { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
   ];

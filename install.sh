@@ -19,7 +19,7 @@ fi
 step "npm ci"
 npm ci
 
-REPO='' BOT_CLONE='' GIT_AUTHOR='' PNPM_STORE='' SECRETS_FILE=''
+REPO='' BOT_CLONE='' GIT_AUTHOR='' PNPM_STORE='' SECRETS_FILE='' AGENT_KIND='' CODEX_CONFIG_PATH=''
 eval "$(node --import tsx src/cli.ts install-env)"
 
 step "bot clone：$BOT_CLONE"
@@ -48,11 +48,27 @@ if [ ! -f "$SECRETS_FILE" ] || [ "$(stat -c %a "$SECRETS_FILE")" != 600 ]; then
 
 裡面放（KEY=VALUE 一行一個）：
 
-  CLAUDE_CODE_OAUTH_TOKEN=          # 操作者跑 \`claude setup-token\` 拿到的
+  CODEX_GATEWAY_API_KEY=           # Codex：公司 gateway API key
+  CLAUDE_CODE_OAUTH_TOKEN=          # Claude：操作者跑 \`claude setup-token\` 拿到的
   AGENT_RUNNER_SLACK_WEBHOOK_URL=   # Slack incoming webhook（只有操作者在的 private channel）
 MSG
   exit 1
 fi
+
+if [ "$AGENT_KIND" = codex ] && [ ! -f "$CODEX_CONFIG_PATH" ]; then
+  echo "停下：Codex gateway 設定不存在：$CODEX_CONFIG_PATH。依 README 建立 runner 專用設定（不含 API key）後再跑。" >&2
+  exit 1
+fi
+
+# 在連到 systemd 前驗證所選 agent；避免裝完後接到第一張單才發現缺憑證。
+node --import tsx --input-type=module <<'JS'
+import { config } from "./src/config.ts";
+import { readSecrets } from "./src/secrets.ts";
+import { sandboxAgent } from "./src/sandboxAgent.ts";
+import { sandboxMounts } from "./src/sandboxMounts.ts";
+sandboxAgent(config, readSecrets(config.secretsFile));
+for (const phase of ["implement", "review", "verify", "merge"]) sandboxMounts(config, phase);
+JS
 
 step "systemd units → $UNIT_DIR"
 mkdir -p "$UNIT_DIR"

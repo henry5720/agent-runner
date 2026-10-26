@@ -9,12 +9,13 @@ import { consoleNotifier, createSlackNotifier } from "./notifier.js";
 import { createPower } from "./power.js";
 import { runRound } from "./runRound.js";
 import { createRunStateFile } from "./runState.js";
+import { sandboxAgent } from "./sandboxAgent.js";
 import { createSandbox } from "./sandbox.js";
 import { readSecrets, slackWebhookUrl } from "./secrets.js";
 
 const secrets = readSecrets(config.secretsFile);
-const token = secrets.CLAUDE_CODE_OAUTH_TOKEN;
-if (!token) throw new Error(`CLAUDE_CODE_OAUTH_TOKEN missing in ${config.secretsFile}`);
+// 在挑單／認領之前確認所選 provider 的憑證。
+sandboxAgent(config, secrets);
 
 // 沒設 webhook 就只印 stdout，照樣做單
 const webhookUrl = slackWebhookUrl(secrets);
@@ -31,7 +32,7 @@ process.once("SIGUSR2", () => {
 await runRound(config, {
   github: createGitHub({ repo: config.repo, pickSearch: config.pickSearch, evidenceRoot: join(config.stateDir, "evidence") }),
   git: createGit({ repoPath: config.botClonePath }),
-  sandbox: createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: token }),
+  sandbox: createSandbox(config, secrets),
   notifier: webhookUrl ? createSlackNotifier(webhookUrl) : consoleNotifier,
   clock: systemClock,
   lock: createFlock(join(config.stateDir, "round.lock")),

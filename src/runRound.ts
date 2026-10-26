@@ -194,7 +194,7 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
 
 /**
  * host 上的 `git merge` 有衝突（已 abort、agent/<S> 沒動）：再跑一次 sandbox（merge run）讓 agent 在 agent/<S> 上合、
- * 用 resolving-merge-conflicts 解、重跑檢查。跟實作、review 共用整張單的 signal（timeoutMinutes 是整張單的上限）。
+ * 依 merge prompt 解衝突並重跑檢查。跟實作、review 共用整張單的 signal（timeoutMinutes 是整張單的上限）。
  * 解掉而且檢查過、本地 agent/<S> 真的是合併結果 → push（不 force）後照全過收尾；解不掉、檢查沒過、沒合出東西、
  * 期間有人往遠端 agent/<S> push 而被拒 → [WIP] 進 agent/<S>；
  * timeout／crash → 照 crash 收尾，agent/<S> 不 push
@@ -261,7 +261,7 @@ async function openAgentPr(
 ): Promise<Ending> {
   const n = issue.number;
   // push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN
-  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed), evidence: prEvidence(reviewed) });
+  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed, config.agent), evidence: prEvidence(reviewed) });
   if (review.outcome === "wip") {
     await deps.github.comment(
       n,
@@ -296,7 +296,7 @@ async function closeIntoSpec(
   const n = issue.number;
   const integration = agentBranch(spec);
   const existing = await github.findOpenPr(integration);
-  const body = specPrBody(spec, existing?.body ?? null, { number: n, title: issue.title, sha, impl: result, review, resolution });
+  const body = specPrBody(spec, existing?.body ?? null, { number: n, title: issue.title, sha, impl: result, review, resolution }, config.agent);
   // gh 拿不到標題（或 spec 標題是空的）時也要有個 PR 標題
   const title = issue.parentTitle.trim() || `spec #${spec}`;
   const pr = existing

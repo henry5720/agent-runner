@@ -57,3 +57,15 @@ describe("verification reporting", () => {
     expect(implementResultSchema.safeParse(passResult({ unverified: [{ item: "", reason: "缺少工具" }] })).success).toBe(false);
   });
 });
+
+
+describe("agent 署名", () => {
+  it("Codex PR 不會誤標成 Claude Code", () => {
+    const body = prBody(42, passResult(), reviewResult(), undefined, "codex");
+    expect(body).toContain("Generated with [Codex]");
+    expect(body).not.toContain("Generated with [Claude Code]");
+    const specBody = specPrBody(40, null, { number: 42, title: "test", sha: "abc", impl: passResult(), review: reviewResult() }, "codex");
+    expect(specBody).toContain("Generated with [Codex]");
+    expect(specBody).not.toContain("Generated with [Claude Code]");
+  });
+});

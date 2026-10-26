@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { StructuredOutputError } from "@ai-hero/sandcastle";
+import { claudeCode, codex, StructuredOutputError } from "@ai-hero/sandcastle";
 import { InvalidVerificationResultError } from "../src/browserVerification.js";
 import type { Config } from "../src/config.js";
 import { createSandbox } from "../src/sandbox.js";
@@ -15,6 +15,7 @@ vi.mock("@ai-hero/sandcastle", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@ai-hero/sandcastle")>()),
   run: stubs.run,
   claudeCode: vi.fn(() => "agent"),
+  codex: vi.fn(() => "codex-agent"),
   Output: { object: vi.fn((options) => options) },
 }));
 vi.mock("@ai-hero/sandcastle/sandboxes/docker", () => ({ docker: stubs.docker }));
@@ -31,10 +32,10 @@ describe("sandbox configuration adapter", () => {
     writeFileSync(join(mergePath, "SKILL.md"), "merge instructions");
     config = {
       ...testConfig,
-      globalClaudePath: join(root, "CLAUDE.md"),
+      globalRulesPath: join(root, "CLAUDE.md"),
       sandboxSkills: [{ name: "resolving-merge-conflicts", hostPath: mergePath, phases: ["merge"], dependencies: [] }],
     };
-    writeFileSync(config.globalClaudePath, "global rules");
+    writeFileSync(config.globalRulesPath, "global rules");
   });
 
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -113,6 +114,23 @@ describe("sandbox configuration adapter", () => {
     await expect(createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: "fake-token" }).verify({ ...request(), evidenceDir })).resolves.toEqual({ report, skillInvoked: false });
   });
 
+  it("uses native Codex with only gateway credentials and provider-specific paths", async () => {
+    config.agent = "codex";
+    config.codexConfigPath = join(root, "codex.toml");
+    writeFileSync(config.codexConfigPath, 'model_provider = "runner-gateway"');
+    stubs.run.mockResolvedValue({ output: passResult() });
+    await createSandbox(config, { CODEX_GATEWAY_API_KEY: "gateway-key", CLAUDE_CODE_OAUTH_TOKEN: "other-key", GH_TOKEN: "host-only" }).implement(request());
+    expect(codex).toHaveBeenCalledWith(config.model, { effort: "medium", env: { CODEX_GATEWAY_API_KEY: "gateway-key" } });
+    expect(claudeCode).not.toHaveBeenCalled();
+    expect(stubs.run.mock.calls[0]?.[0]).toMatchObject({ agent: "codex-agent", promptArgs: { GLOBAL_RULES_PATH: "/home/agent/.codex/AGENTS.md", SKILLS_DIR: "/home/agent/.agents/skills" } });
+    expect(stubs.docker.mock.calls[0]?.[0].mounts).toContainEqual({ hostPath: config.codexConfigPath, sandboxPath: "/home/agent/.codex/config.toml", readonly: true });
+  });
+
+  it("fails before starting a run when the selected credential is absent", async () => {
+    await expect(createSandbox(config, { CODEX_GATEWAY_API_KEY: "wrong-provider" }).implement(request())).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN missing");
+    expect(stubs.run).not.toHaveBeenCalled();
+  });
+
   it("passes readonly global rules to all runs and the merge skill only to merge", async () => {
     stubs.run.mockResolvedValueOnce({ output: passResult() }).mockResolvedValue({ output: reviewResult() });
     const sandbox = createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: "fake-token" });
@@ -121,7 +139,7 @@ describe("sandbox configuration adapter", () => {
     await sandbox.merge({ ...request(), source: "agent/43" });
     const mounts = stubs.docker.mock.calls.map(([options]) => options.mounts);
     for (const runMounts of mounts) {
-      expect(runMounts).toContainEqual({ hostPath: config.globalClaudePath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true });
+      expect(runMounts).toContainEqual({ hostPath: config.globalRulesPath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true });
     }
     expect(mounts.map((runMounts) => runMounts.some((mount: { sandboxPath: string }) => mount.sandboxPath.endsWith("/resolving-merge-conflicts")))).toEqual([false, false, true]);
   });
@@ -153,7 +171,7 @@ describe("sandbox configuration adapter", () => {
   });
 
   it("does not invoke docker or sandcastle when global rules are missing", async () => {
-    rmSync(config.globalClaudePath);
+    rmSync(config.globalRulesPath);
     const sandbox = createSandbox(config, { CLAUDE_CODE_OAUTH_TOKEN: "fake-token" });
     await expect(sandbox.implement(request())).rejects.toThrow("配置來源不存在");
     expect(stubs.docker).not.toHaveBeenCalled();

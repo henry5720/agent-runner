@@ -2,6 +2,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AutoOffSchedule } from "./autoOff.js";
 
+export type AgentKind = "claude" | "codex";
+
 export type SandboxPhase = "implement" | "review" | "merge" | "verify";
 
 export interface SandboxSkill {
@@ -14,7 +16,7 @@ export interface SandboxSkill {
 /**
  * runner 的全部設定都在這一個檔。目前的值是第一階段：只挑操作者自己開的單，先把流程跑順。
  * 要放寬挑單、換目標 repo、換身分 → 改這裡，不改程式。
- * secret 不在這裡：`CLAUDE_CODE_OAUTH_TOKEN` 等放 `secretsFile`（chmod 600）。
+ * secret 不在這裡：`CODEX_GATEWAY_API_KEY` 或 `CLAUDE_CODE_OAUTH_TOKEN` 放 `secretsFile`（chmod 600）。
  */
 export interface Config {
   /** 目標 repo slug，所有 gh 指令都帶 `-R` */
@@ -33,7 +35,11 @@ export interface Config {
   botClonePath: string;
   /** `.nvmrc` 在目標 repo 裡的路徑 */
   nvmrcPath: string;
-  globalClaudePath: string;
+  agent: AgentKind;
+  /** Codex gateway 的獨立設定，不含 API key、host hooks 或 MCP。 */
+  codexConfigPath: string;
+  codexEffort: "low" | "medium" | "high" | "xhigh";
+  globalRulesPath: string;
   sandboxSkills: SandboxSkill[];
   /** runner 的 git author name（bot clone 的 repo 層 user.name） */
   gitAuthor: string;
@@ -43,7 +49,7 @@ export interface Config {
   autoOff: AutoOffSchedule;
   /** runner 狀態目錄：輪次鎖、目前在跑哪張（`agent-runner status` 讀） */
   stateDir: string;
-  /** sandbox 裡 claude 用的 model */
+  /** sandbox 裡所選 agent 使用的 model */
   model: string;
   /** image 名稱；tag 由 hash(Dockerfile + .nvmrc) 算 */
   imageName: string;
@@ -64,20 +70,23 @@ export const config: Config = {
   baseBranch: "dev",
   botClonePath: join(home, "agents/teamsync-frontend"),
   nvmrcPath: "frontend/.nvmrc",
-  globalClaudePath: join(home, ".claude/CLAUDE.md"),
+  agent: "codex",
+  codexConfigPath: join(home, ".config/agent-runner/codex.toml"),
+  codexEffort: "medium",
+  globalRulesPath: join(home, ".codex/AGENTS.md"),
   sandboxSkills: [
+    { name: "code-review", hostPath: join(home, ".config/skillshare/skills/code-review"), phases: ["review"], dependencies: [] },
     { name: "tdd", hostPath: join(home, ".config/skillshare/skills/tdd"), phases: ["implement"], dependencies: ["codebase-design"] },
     { name: "codebase-design", hostPath: join(home, ".config/skillshare/skills/codebase-design"), phases: ["implement"], dependencies: [] },
     { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
     { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
     { name: "verify-in-browser", hostPath: join(home, ".config/skillshare/skills/verify-in-browser"), phases: ["verify"], dependencies: [] },
-    { name: "resolving-merge-conflicts", hostPath: join(home, ".config/skillshare/skills/resolving-merge-conflicts"), phases: ["merge"], dependencies: [] },
   ],
   gitAuthor: "henry (agent)",
   timeoutMinutes: 60,
   autoOff: { weekdays: [1, 2, 3, 4, 5], hour: 8, minute: 0, timeZone: "Asia/Taipei" },
   stateDir: join(home, ".local/state/agent-runner"),
-  model: "claude-opus-4-8",
+  model: "gpt-6.1-sol",
   imageName: "sandcastle-teamsync",
   pnpmStorePath: join(home, "agents/pnpm-store"),
   secretsFile: join(home, ".config/agent-runner/env"),
