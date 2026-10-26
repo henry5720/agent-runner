@@ -12,7 +12,7 @@ describe("sandbox configuration mounts", () => {
 
   beforeEach(() => {
     root = mkdtempSync(join(tmpdir(), "runner-config-"));
-    config = { ...testConfig, globalClaudePath: join(root, "CLAUDE.md"), repoEnvPath: join(root, "repo.env"), sandboxSkills: [] };
+    config = { ...testConfig, globalClaudePath: join(root, "CLAUDE.md"), sandboxSkills: [] };
     writeFileSync(config.globalClaudePath, "規則來源");
   });
 
@@ -97,9 +97,11 @@ describe("sandbox configuration mounts", () => {
     expect(() => sandboxMounts(config, "implement")).toThrow("名稱無效或重複");
   });
 
-  it("mounts a repo env file readonly only when it exists", () => {
-    expect(sandboxMounts(config, "implement")).toHaveLength(2);
-    writeFileSync(config.repoEnvPath, "");
-    expect(sandboxMounts(config, "implement")).toContainEqual({ hostPath: config.repoEnvPath, sandboxPath: "frontend/.env.local", readonly: true });
+  it("does not mount a legacy repo env file", () => {
+    writeFileSync(join(root, "repo.env"), "VITE_TEST=legacy");
+    expect(sandboxMounts(config, "implement")).toEqual([
+      { hostPath: config.globalClaudePath, sandboxPath: "/home/agent/.claude/CLAUDE.md", readonly: true },
+      { hostPath: config.pnpmStorePath, sandboxPath: SANDBOX_PNPM_STORE },
+    ]);
   });
 });

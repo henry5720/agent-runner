@@ -2,8 +2,9 @@
  * runRound() 的系統邊界。一個操作一個 method（SDK 風格），測試用 test/support/fakes.ts 的 in-memory 版本。
  * 真的實作：github.ts（gh）、git.ts（bot clone）、sandbox.ts（sandcastle + docker）、notifier.ts、clock.ts。
  */
-import type { ImplementResult, ReviewResult } from "./result.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
+import type { VerificationRunResult } from "./browserVerification.js";
 
 export interface NewPr {
   base: string;
@@ -107,6 +108,11 @@ export interface MergeRequest extends ImplementRequest {
   source: string;
 }
 
+export interface VerifyRequest extends ImplementRequest {
+  /** runner 狀態目錄下，這張單這一輪專用的 host 絕對路徑 */
+  evidenceDir: string;
+}
+
 export interface Sandbox {
   /** runner 的 Dockerfile 內容（算 image tag 用） */
   dockerfile(): Promise<string>;
@@ -121,11 +127,13 @@ export interface Sandbox {
   implement(req: ImplementRequest): Promise<ImplementResult>;
   /** 實作之後另一次乾淨 context 的 reviewer run（同一條 branch、同一個 signal），可 commit 修正，最後重跑檢查 */
   review(req: ImplementRequest): Promise<ReviewResult>;
+  /** reviewer 後另起乾淨 sandbox，只讀 diff 與驗收條件，證據留在 host */
+  verify(req: VerifyRequest): Promise<VerificationRunResult>;
   /**
-   * `git merge <source>` 有衝突時另跑一次 run：agent 在 agent/<S> 上合、解衝突、重跑檢查、commit，回報 pass／wip（同 reviewer 的 schema）。
+   * `git merge <source>` 有衝突時另跑一次 run：agent 在 agent/<S> 上合、解衝突、重跑檢查、commit，回報 pass／wip（reviewer 的 schema 去掉 browserVerify）。
    * 失敗照 implement 的規則 throw；push 由 host 做
    */
-  merge(req: MergeRequest): Promise<ReviewResult>;
+  merge(req: MergeRequest): Promise<CheckResult>;
 }
 
 export interface Notifier {

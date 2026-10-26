@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { InvalidVerificationResultError } from "./browserVerification.js";
 import type { Config } from "./config.js";
 import { decide, specOf } from "./decide.js";
 import { wantedImage } from "./image.js";
@@ -6,7 +9,7 @@ import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, RUNNER_LABEL, worktre
 import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle, specPrBody, verificationText } from "./prBody.js";
 import type { Deps } from "./ports.js";
-import type { ImplementResult, ReviewResult } from "./result.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 
 /**
@@ -133,8 +136,8 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
   // off --now 也走同一個 signal：sandcastle abort 時會 docker stop + rm 自己的 container
   const signal = AbortSignal.any([timeout, deps.stopSignal]);
   // reviewer run：乾淨 context 跑 code-review、可 commit 修正、最後重跑檢查。實作回報 wip 也跑（reviewer 可能修好）；
-  // 最後的結局以 review 後的檢查為準。兩次 run 任一次 timeout／crash 都照 crash 收尾
-  let result, review;
+  // review 後再依需求驗收，最後的結局包含驗收結果。任一次 run timeout／crash 都照 crash 收尾
+  let result: ImplementResult, review: ReviewResult;
   try {
     result = await sandbox.implement({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
     if (result.outcome === "needs-info") {
@@ -142,6 +145,23 @@ async function handleIssue(config: Config, deps: Deps, issue: Issue, ctx: { tag:
       return { kind: "needs-info", questions: result.questions };
     }
     review = await sandbox.review({ imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal });
+    if (review.outcome === "pass" && review.browserVerify.needed) {
+      try {
+        review.browserVerification = await sandbox.verify({
+          imageTag: ctx.tag, issue, branch, baseRef: ctx.baseRef, signal,
+          evidenceDir: join(config.stateDir, "evidence", `${n}-${randomUUID()}`),
+        });
+        if (!review.browserVerification.skillInvoked) review.browserVerificationFailure = "驗收 run 沒有呼叫 verify-in-browser，結果不採信";
+        const failed = review.browserVerificationFailure ? [review.browserVerificationFailure] : review.browserVerification.report.criteria
+          .filter((criterion) => criterion.status === "failed")
+          .map((criterion) => `${criterion.criterion}：${criterion.reason}`);
+        if (!review.browserVerificationFailure && review.browserVerification.report.status === "unverifiable") failed.push(`瀏覽器驗收驗不了：${review.browserVerification.report.unverifiableReason}`);
+        if (failed.length) review = { ...review, outcome: "wip", failedChecks: [...review.failedChecks, ...failed] };
+      } catch (err) {
+        if (!(err instanceof InvalidVerificationResultError) || signal.aborted) throw err;
+        review = { ...review, outcome: "wip", browserVerificationFailure: err.message, failedChecks: [...review.failedChecks, err.message] };
+      }
+    }
   } catch (err) {
     const reason = deps.stopSignal.aborted ? "被 `agent-runner off --now` 立刻停下" : failureReason(err, timeout, config.timeoutMinutes);
     return { kind: "crash", reason, worktreePath: await wrapUpCrash(deps, config.operator, n, reason) };
@@ -191,9 +211,12 @@ async function resolveConflict(
   const integration = agentBranch(ctx.spec);
   const conflict = `\`git merge --no-edit\` 合進 \`${integration}\` 有衝突`;
   const wip = (lead: string, failedChecks: string[]) =>
-    openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, lead);
+    openAgentPr(config, deps, issue, ctx.result, { ...ctx.review, outcome: "wip", failedChecks: [conflict, ...failedChecks] }, integration, {
+      wipLead: lead,
+      reviewed: ctx.review,
+    });
 
-  let resolution: ReviewResult;
+  let resolution: CheckResult;
   try {
     // 上一次 merge run 解不掉時 sandcastle 會留下 dirty 的 agent/<S> worktree，不刪的話 branch -f 會失敗
     const leftover = (await git.listWorktrees()).find((w) => w.name === worktreeName(integration));
@@ -224,7 +247,8 @@ async function resolveConflict(
 
 /**
  * 開或更新 agent/<N> 的 draft PR 進 `base`（一般 issue 是 baseBranch，spec 的 sub-issue 是整合分支）。
- * 全過的留著操作者 assignee（等 PR merge 才關）；[WIP] 留言附 PR、拿掉 assignee。`wipLead` 換掉 WIP 留言的第一句（例如合併衝突）
+ * 全過的留著操作者 assignee（等 PR merge 才關）；[WIP] 留言附 PR、拿掉 assignee。`wipLead` 換掉 WIP 留言的第一句（例如合併衝突）；
+ * `reviewed` 是 runner 把 `review` 改成 wip 之前 reviewer 原本回的結果，PR body 的「瀏覽器驗收」段照它寫
  */
 async function openAgentPr(
   config: Config,
@@ -233,11 +257,11 @@ async function openAgentPr(
   result: ImplementResult,
   review: ReviewResult,
   base: string,
-  wipLead = "🤖 有檢查沒過",
+  { wipLead = "🤖 有檢查沒過", reviewed = review }: { wipLead?: string; reviewed?: ReviewResult } = {},
 ): Promise<Ending> {
   const n = issue.number;
   // push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN
-  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review) });
+  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed) });
   if (review.outcome === "wip") {
     await deps.github.comment(
       n,
@@ -245,7 +269,8 @@ async function openAgentPr(
     );
   }
   await releaseIssue(deps, config.operator, n, { keepAssignee: review.outcome !== "wip" });
-  return review.outcome === "wip" ? { kind: "wip", pr, failedChecks: review.failedChecks } : { kind: "pass", pr };
+  const browserVerification = reviewed.browserVerificationFailure ? undefined : reviewed.browserVerification?.report;
+  return review.outcome === "wip" ? { kind: "wip", pr, failedChecks: review.failedChecks, browserVerification } : { kind: "pass", pr, browserVerification };
 }
 
 /** 整合分支到要用時才建（第一張全過或 [WIP]；needs-info、crash 不碰它）：從 origin/<baseBranch> 開 */
@@ -265,7 +290,7 @@ async function closeIntoSpec(
   result: ImplementResult,
   review: ReviewResult,
   /** 合併有衝突、由 merge run 解掉時的回報 */
-  resolution?: ReviewResult,
+  resolution?: CheckResult,
 ): Promise<Ending> {
   const { github } = deps;
   const n = issue.number;
@@ -291,7 +316,7 @@ async function closeIntoSpec(
   // 關掉的 issue 留著操作者當紀錄；被它擋的下一張 sub-issue 下一輪就解鎖
   await releaseIssue(deps, config.operator, n, { keepAssignee: true });
   await github.closeIssue(n);
-  return { kind: "pass", pr };
+  return { kind: "pass", pr, browserVerification: review.browserVerificationFailure ? undefined : review.browserVerification?.report };
 }
 
 /** push branch，開或更新以它為 head 的 draft PR。重接時沿用還開著的那張；已轉 ready 的先退回 draft 再 push，不然 force push 會觸發整支 CI */

@@ -1,5 +1,6 @@
+import { browserVerificationText } from "./browserVerification.js";
 import { agentBranch } from "./names.js";
-import type { ImplementResult, ReviewResult } from "./result.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 
 type Verification = ImplementResult["verification"];
 type Unverified = ImplementResult["unverified"];
@@ -9,10 +10,12 @@ const commands = (v: Verification) => list(v.map((c) => `\`${c.command}\` → ${
 const unverified = (v: Unverified) => list(v.map((c) => `${c.item}：${c.reason}`));
 
 /**
- * PR body 固定四段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
+ * PR body 固定五段＋ Claude Code 署名（draft 階段沒有 CI 燈號，人只能靠 body 判斷這張 PR）。
+ * 「瀏覽器驗收」段永遠在，分得出沒驗是 reviewer 刻意判的、還是漏掉。
  * `[WIP]` 多一段「沒過的檢查」（以 review 後那次為準）。依賴變動放在變更摘要裡；驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查。
+ * `reviewed` 是 reviewer 原本回的結果：合併衝突解不掉時 runner 會把 `review` 改成 wip，但「瀏覽器驗收」段仍照 reviewer 的判斷寫。
  */
-export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult): string {
+export function prBody(issueNumber: number, impl: ImplementResult, review: ReviewResult, reviewed: ReviewResult = review): string {
   const dependencies = [...new Set([...impl.dependencies, ...review.dependencies])];
   const summary = [
     impl.summary,
@@ -26,15 +29,34 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
     `Closes #${issueNumber}`,
     `## 變更摘要\n\n${summary}`,
     `## 驗證\n\n${verification}`,
+    browserVerifySection(reviewed),
     ...(review.outcome === "wip" ? [`## 沒過的檢查\n\n${list(review.failedChecks) || "（reviewer 沒有列出是哪一項）"}`] : []),
     `---\n\n由 sandcastle runner 自動產生。`,
     `🤖 Generated with [Claude Code](https://claude.com/claude-code)`,
   ].join("\n\n");
 }
 
+/** 一般 PR 與整合分支 sub-issue 共用，後者標題降一級。 */
+function browserVerifySection(review: ReviewResult, heading = "##", resolvedConflict = false): string {
+  return [
+    `${heading} 瀏覽器驗收`,
+    browserVerifyText(review),
+    ...(resolvedConflict ? ["解完合併衝突後沒有重驗"] : []),
+  ].join("\n\n");
+}
+
+/** reviewer 的判斷與驗收 run 的逐條結果。 */
+function browserVerifyText(review: ReviewResult): string {
+  if (review.browserVerificationFailure) return review.browserVerificationFailure;
+  if (review.browserVerification) return browserVerificationText(review.browserVerification.report);
+  if (review.outcome === "wip") return "reviewer 回 wip，沒有起驗收 run";
+  if (!review.browserVerify.needed) return `不驗：${review.browserVerify.reason}（reviewer 判斷）`;
+  return "驗收 run 沒交出合格結果";
+}
+
 /** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */
-export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###", resolution?: ReviewResult): string {
-  const section = (label: string, result: ImplementResult | ReviewResult) =>
+export function verificationText(impl: ImplementResult, review: CheckResult, heading = "###", resolution?: CheckResult): string {
+  const section = (label: string, result: ImplementResult | CheckResult) =>
     [
       `${heading} ${label}`,
       commands(result.verification) || "（沒有回報任何驗證指令）",
@@ -57,7 +79,7 @@ export interface MergedSubIssue {
   impl: ImplementResult;
   review: ReviewResult;
   /** 合併有衝突、由 merge run 解掉時的回報 */
-  resolution?: ReviewResult;
+  resolution?: CheckResult;
 }
 
 const entryPattern = /<!-- sub-issue #(\d+) -->[\s\S]*?<!-- \/sub-issue #\1 -->/g;
@@ -76,6 +98,7 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
     ...(merged.resolution ? [`**合併衝突**（由 agent 解掉）${merged.resolution.summary.trim() ? `\n\n${merged.resolution.summary}` : ""}`] : []),
     `**驗證**\n\n${verificationText(merged.impl, merged.review, "####", merged.resolution)}`,
+    browserVerifySection(merged.review, "###", Boolean(merged.resolution)),
     `<!-- /sub-issue #${merged.number} -->`,
   ].join("\n\n");
   const at = entries.findIndex((e) => e.number === merged.number);

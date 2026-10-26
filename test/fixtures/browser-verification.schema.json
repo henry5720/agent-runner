@@ -1,0 +1,160 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "sha": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "unverifiable"
+      ]
+    },
+    "unverifiableReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidenceDir": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "verifier": {
+      "type": "object",
+      "properties": {
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "same_model": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model",
+        "same_model"
+      ],
+      "additionalProperties": false
+    },
+    "criteriaSource": {
+      "type": "string",
+      "enum": [
+        "issue",
+        "inferred"
+      ]
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observed": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "skipped"
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "account": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+            }
+          }
+        },
+        "required": [
+          "criterion",
+          "observed",
+          "status",
+          "reason",
+          "account",
+          "evidence"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "consoleErrors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "related": {
+            "type": "string",
+            "enum": [
+              "yes",
+              "no",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "text",
+          "related"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "stagingRecords": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "sha",
+    "status",
+    "unverifiableReason",
+    "evidenceDir",
+    "verifier",
+    "criteriaSource",
+    "criteria",
+    "consoleErrors",
+    "stagingRecords"
+  ],
+  "additionalProperties": false
+}

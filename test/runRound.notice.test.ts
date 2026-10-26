@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig, verificationResult } from "./support/fakes.js";
 
 describe("runRound — Slack notice per issue", () => {
   it("all checks pass: emoji, linked title, PR link, duration, no reason", async () => {
@@ -89,4 +89,39 @@ describe("runRound — Slack notice per issue", () => {
 
     expect({ labels: deps.github.issue(42).labels, prs: deps.github.prs.map((pr) => pr.head) }).toEqual({ labels: ["needs-info"], prs: ["agent/43"] });
   });
+  it("通知帶可信驗收 run 的逐條數量", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })], results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "操作流程" } }) },
+      verifications: { 42: verificationResult({ criteria: [
+        { criterion: "顯示toast", observed: "成功", status: "passed", reason: null, account: "E2E", evidence: ["toast.png"] },
+        { criterion: "不閃白", observed: "閃白一次", status: "failed", reason: "切換仍閃白", account: null, evidence: [] },
+        { criterion: "美觀", observed: "需要人判斷", status: "skipped", reason: "主觀", account: null, evidence: [] },
+      ] }) },
+    });
+    await runRound(testConfig, deps);
+    expect(deps.notifier.messages[0]).toContain("1 passed／1 failed／1 skipped");
+  });
+
+  it.each([null, 40])("全過通知也帶數量（parent=%s）", async (parentNumber) => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42, parentNumber })], results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "操作流程" } }) },
+      verifications: { 42: verificationResult() },
+    });
+    await runRound(testConfig, deps);
+    expect(deps.notifier.messages[0]).toContain("1 passed／0 failed／0 skipped");
+  });
+
+  it("未呼叫 skill 的驗收不採信，不在 Slack 印出成功數量", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })], results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "操作流程" } }) },
+      verifications: { 42: { ...verificationResult(), skillInvoked: false } },
+    });
+    await runRound(testConfig, deps);
+    expect(deps.notifier.messages[0]).toContain("結果不採信");
+    expect(deps.notifier.messages[0]).not.toContain("passed／");
+  });
+
 });

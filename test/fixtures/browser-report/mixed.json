@@ -1,0 +1,56 @@
+{
+  "sha": "abc123",
+  "status": "verified",
+  "unverifiableReason": null,
+  "evidenceDir": "/tmp/verify-demo",
+  "verifier": {
+    "model": "claude-sonnet-4-6",
+    "same_model": true
+  },
+  "criteriaSource": "inferred",
+  "criteria": [
+    {
+      "criterion": "儲存後出現 toast",
+      "observed": "點儲存後顯示「儲存成功」",
+      "status": "passed",
+      "reason": null,
+      "account": "E2E_ADMIN",
+      "evidence": [
+        "after-toast.png"
+      ]
+    },
+    {
+      "criterion": "取消後關閉對話框",
+      "observed": "按取消後對話框仍開著",
+      "status": "failed",
+      "reason": "對話框未關閉",
+      "account": "E2E_ADMIN",
+      "evidence": [
+        "after-cancel.png"
+      ]
+    },
+    {
+      "criterion": "viewer 不能刪除",
+      "observed": "無 viewer 帳號可登入",
+      "status": "skipped",
+      "reason": "缺少 E2E_VIEWER_EMAIL、E2E_VIEWER_PASSWORD",
+      "account": "E2E_VIEWER",
+      "evidence": []
+    }
+  ],
+  "consoleErrors": [
+    {
+      "text": "Error: save failed",
+      "related": "yes"
+    },
+    {
+      "text": "TypeError: cannot read x",
+      "related": "unknown"
+    },
+    {
+      "text": "GET logo 403",
+      "related": "no"
+    }
+  ],
+  "stagingRecords": 2
+}

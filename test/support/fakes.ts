@@ -3,8 +3,9 @@
  * 測試只看最終狀態（issue 的 label／留言、PR、branch、Slack 訊息），不看呼叫次數或順序。
  */
 import type { Config } from "../../src/config.js";
-import type { Clock, Deps, Git, GitHub, ImplementRequest, Lock, MergeRequest, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
-import type { ImplementResult, ReviewResult } from "../../src/result.js";
+import type { VerifyRequest, Clock, Deps, Git, GitHub, ImplementRequest, Lock, MergeRequest, NewPr, Notifier, Power, RunningIssue, RunState, Sandbox, Worktree } from "../../src/ports.js";
+import type { CheckResult, ImplementResult, ReviewResult } from "../../src/result.js";
+import type { VerificationRunResult } from "../../src/browserVerification.js";
 import type { Issue } from "../../src/types.js";
 
 /** 建一張預設「操作者自己開、帶 agent-runner、沒 parent、沒 sub-issue」的 issue。 */
@@ -39,7 +40,7 @@ export function passResult(overrides: Partial<ImplementResult> = {}): ImplementR
   };
 }
 
-/** reviewer run 的結果；預設「沒改東西、檢查全過」 */
+/** reviewer run 的結果；預設「沒改東西、檢查全過、判斷不用瀏覽器驗收」 */
 export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
   return {
     outcome: "pass",
@@ -48,8 +49,18 @@ export function reviewResult(overrides: Partial<ReviewResult> = {}): ReviewResul
     unverified: [],
     failedChecks: [],
     dependencies: [],
+    browserVerify: { needed: false, reason: "沒有碰到畫面或操作" },
     ...overrides,
   };
+}
+
+export function verificationResult(overrides: Partial<VerificationRunResult["report"]> = {}): VerificationRunResult {
+  return { skillInvoked: true, report: {
+    sha: "abc123", status: "verified", unverifiableReason: null, evidenceDir: "/state/evidence/run",
+    verifier: { model: "test-model", same_model: true }, criteriaSource: "issue",
+    criteria: [{ criterion: "刪除後出現 toast", observed: "顯示刪除成功", status: "passed", reason: null, account: "E2E", evidence: ["toast.png"] }],
+    consoleErrors: [], stagingRecords: 0, ...overrides,
+  } };
 }
 
 export const testConfig: Config = {
@@ -70,7 +81,6 @@ export const testConfig: Config = {
   model: "test-model",
   imageName: "sandcastle-test",
   pnpmStorePath: "/store",
-  repoEnvPath: "/env/widgets.env",
   secretsFile: "/secrets/env",
 };
 
@@ -295,11 +305,13 @@ export class FakeSandbox implements Sandbox {
   readonly builtImages: { tag: string; nodeVersion: string; fresh?: boolean }[] = [];
   readonly runs: ImplementRequest[] = [];
   readonly reviews: ImplementRequest[] = [];
+  readonly verifications: VerifyRequest[] = [];
+  readonly verificationResults: Record<number, VerificationRunResult | ScriptedFailure> = {};
   /** 這些單的實作 run 回報做完，卻沒在 branch 上留下任何 commit */
   readonly commitless = new Set<number>();
   readonly merges: MergeRequest[] = [];
   /** 每張單的 merge run 結果（key 是 sub-issue #A）；沒給就丟錯（測試沒預期會跑 merge run） */
-  readonly mergeResults: Record<number, ReviewResult | ScriptedFailure> = {};
+  readonly mergeResults: Record<number, CheckResult | ScriptedFailure> = {};
   /** 這些單的 merge run 回報 pass，卻沒在 agent/<S> 上合出東西 */
   readonly mergeless = new Set<number>();
   /** merge run 跑到一半時發生的事（例如人往遠端 agent/<S> push） */
@@ -353,6 +365,14 @@ export class FakeSandbox implements Sandbox {
     if (req.signal.aborted) throw req.signal.reason;
     this.reviews.push(req);
     const result = this.reviewResults[req.issue.number] ?? reviewResult();
+    if ("throws" in result) throw result.throws;
+    return result;
+  }
+  async verify(req: VerifyRequest) {
+    if (req.signal.aborted) throw req.signal.reason;
+    this.verifications.push(req);
+    const result = this.verificationResults[req.issue.number];
+    if (!result) throw new Error(`fake sandbox: no scripted verification for #${req.issue.number}`);
     if ("throws" in result) throw result.throws;
     return result;
   }
@@ -428,7 +448,8 @@ export function fakeDeps(opts: {
   /** 沒給的單 reviewer 回「沒改東西、全過」 */
   reviews?: Record<number, ReviewResult | ScriptedFailure>;
   /** 合併有衝突時 merge run 的結果（key 是 sub-issue #A） */
-  merges?: Record<number, ReviewResult | ScriptedFailure>;
+  merges?: Record<number, CheckResult | ScriptedFailure>;
+  verifications?: Record<number, VerificationRunResult | ScriptedFailure>;
   images?: string[];
   nvmrc?: string;
   now?: Date;
@@ -441,6 +462,7 @@ export function fakeDeps(opts: {
   const git = new FakeGit({ [nvmrcKey]: opts.nvmrc ?? "22.16.0" }, (branch) => github.onPush(branch));
   const sandbox = new FakeSandbox(opts.results, opts.images, undefined, opts.reviews, { git, clock, botClonePath: testConfig.botClonePath, minutesPerRun: opts.minutesPerRun });
   Object.assign(sandbox.mergeResults, opts.merges);
+  Object.assign(sandbox.verificationResults, opts.verifications);
   return {
     github,
     git,

@@ -3,15 +3,17 @@
  * 結局 emoji＋連到 issue 的單名、有 PR 才放 PR 連結、花多久、一句原因（全過不寫）。
  * 格式是 Slack mrkdwn：連結寫 `<url|文字>`，文字裡的 `& < >` 要跳脫。
  */
+import type { BrowserVerification } from "./browserVerification.js";
 import { agentBranch } from "./names.js";
 
-export type Ending =
+export type Ending = (
   | { kind: "pass"; pr: { number: number; url: string } }
   | { kind: "wip"; pr: { number: number; url: string }; failedChecks: string[] }
   | { kind: "needs-info"; questions: string[] }
   | { kind: "crash"; reason: string; worktreePath?: string }
   /** 沒接單就停手（例如 agent/<N> 上有人手做的 commit） */
-  | { kind: "stopped"; reason: string };
+  | { kind: "stopped"; reason: string }
+) & { browserVerification?: BrowserVerification };
 
 export interface NoticeInput {
   repo: string;
@@ -52,6 +54,9 @@ export function noticeText({ repo, issue, durationMs, ending }: NoticeInput): st
     `${EMOJI[ending.kind]} <https://github.com/${repo}/issues/${issue.number}|${escape(name)}>`,
     ...("pr" in ending ? [`PR <${ending.pr.url}|#${ending.pr.number}>`] : []),
     ...(durationMs === undefined ? [] : [duration(durationMs)]),
+    ...(ending.browserVerification ? [["passed", "failed", "skipped"].map((status) =>
+      `${ending.browserVerification!.criteria.filter((criterion) => criterion.status === status).length} ${status}`,
+    ).join("／")] : []),
   ].join(" · ");
   const why = reason(ending, issue.number);
   return why ? `${head}\n${escape(why)}` : head;

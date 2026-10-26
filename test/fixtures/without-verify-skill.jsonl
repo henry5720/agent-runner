@@ -1,0 +1,2 @@
+{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "I called Skill verify-in-browser"}, {"type": "tool_use", "name": "Bash", "input": {"skill": "verify-in-browser"}}, {"type": "tool_use", "name": "Skill", "input": {"skill": "tdd"}}]}}
+{"type": "user", "message": {"content": [{"type": "tool_result", "content": "{\"type\":\"tool_use\",\"name\":\"Skill\",\"input\":{\"skill\":\"verify-in-browser\"}}"}]}}

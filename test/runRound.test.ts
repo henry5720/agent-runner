@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, reviewResult, testConfig, verificationResult } from "./support/fakes.js";
 import type { ImplementResult } from "../src/result.js";
 import type { Issue } from "../src/types.js";
 
@@ -165,6 +165,60 @@ describe("runRound — reviewer run", () => {
       dependencies: body.includes("依賴變動"),
       failed: body.includes("## 沒過的檢查"),
     }).toEqual({ closes: true, summary: true, verification: true, generated: true, attribution: true, dependencies: false, failed: false });
+  });
+});
+
+describe("runRound — browser verification section", () => {
+  const sectionOf = (body: string) => body.match(/## 瀏覽器驗收\n\n([^\n]*)/)?.[1];
+
+  it("writes the reviewer's reason when it judged no browser verification is needed", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })],
+      results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: false, reason: "只改了 CLI 參數解析" } }) },
+    });
+
+    await runRound(testConfig, deps);
+
+    expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("不驗：只改了 CLI 參數解析（reviewer 判斷）");
+  });
+
+  it("says no verification run was started when the reviewer reported wip", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })],
+      results: { 42: passResult() },
+      reviews: { 42: reviewResult({ outcome: "wip", failedChecks: ["eslint"], browserVerify: { needed: true, reason: "改了按鈕" } }) },
+    });
+
+    await runRound(testConfig, deps);
+
+    expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("reviewer 回 wip，沒有起驗收 run");
+  });
+
+  it("reports evidence when the reviewer judged verification needed", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })],
+      results: { 42: passResult() },
+      reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "改了按鈕" } }) },
+      verifications: { 42: verificationResult() },
+    });
+
+    await runRound(testConfig, deps);
+
+    expect(sectionOf(deps.github.prs[0]?.body ?? "")).toBe("證據：/state/evidence/run（runner 主機本機，不在 git）");
+  });
+
+  it("places the section after 驗證 and before 沒過的檢查", async () => {
+    const deps = fakeDeps({
+      issues: [issue({ number: 42 })],
+      results: { 42: passResult() },
+      reviews: { 42: reviewResult({ outcome: "wip", failedChecks: ["eslint"] }) },
+    });
+
+    await runRound(testConfig, deps);
+
+    const headings = (deps.github.prs[0]?.body ?? "").match(/^## .+$/gm);
+    expect(headings).toEqual(["## 變更摘要", "## 驗證", "## 瀏覽器驗收", "## 沒過的檢查"]);
   });
 });
 
