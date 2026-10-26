@@ -32,6 +32,8 @@ export function createGit(opts: { repoPath: string }): Git {
       return git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).then(() => true, () => false);
     },
     async mergeInto(target, source) {
+      // 實作期間操作者可能 push 整合分支，合併前先更新，才能偵測衝突並保留人的改動。
+      await git(["fetch", "origin", `+refs/heads/${target}:refs/remotes/origin/${target}`]);
       // 主 checkout 不能切到 agent/*（sandcastle 的限制），在暫時的 detached worktree 裡合，合完直接 push 到遠端的 target
       const dir = await mkdtemp(join(tmpdir(), "agent-runner-merge-"));
       const inDir = async (args: string[]) => (await run("git", ["-C", dir, ...args], { maxBuffer: 16 * 1024 * 1024 })).stdout;

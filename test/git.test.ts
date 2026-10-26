@@ -148,4 +148,26 @@ describe("git adapter against a real repo", () => {
     }).toEqual({ outcome: { kind: "conflict" }, unchanged: true, tempWorktrees: 1 });
   });
 
+  it("refreshes integration pushed during the run before detecting conflicts", async () => {
+    sh(human, "switch", "-q", "-c", "agent/7", "origin/dev");
+    sh(human, "push", "-q", "origin", "agent/7");
+    runnerCommitsBesideHuman("same.txt", "runner");
+    const git = createGit({ repoPath: bot });
+    await git.fetch();
+    // 輪次開始時已 fetch，但實作期間操作者又 push 同一個檔案。
+    writeFileSync(join(human, "same.txt"), "human pushed during implementation");
+    sh(human, "add", "same.txt");
+    sh(human, "-c", `user.name=${OPERATOR}`, "-c", `user.email=${EMAIL}`, "commit", "-q", "-m", "advance integration");
+    sh(human, "push", "-q", "origin", "agent/7");
+    const before = sh(remote, "rev-parse", "agent/7");
+
+    const outcome = await git.mergeInto("agent/7", "agent/1");
+
+    expect({
+      outcome,
+      unchanged: sh(remote, "rev-parse", "agent/7") === before,
+      tempWorktrees: sh(bot, "worktree", "list", "--porcelain").split("\n").filter((l) => l.startsWith("worktree ")).length,
+    }).toEqual({ outcome: { kind: "conflict" }, unchanged: true, tempWorktrees: 1 });
+  });
+
 });

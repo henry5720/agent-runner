@@ -312,7 +312,7 @@ npm run typecheck
 | `src/lock.ts` `src/runState.ts` `src/power.ts` | 輪次鎖、目前在跑哪張、開關狀態 |
 | `src/cli.ts` `src/maintenance.ts` | CLI 裡要讀設定的子指令、`rebuild`／`clean-worktrees` |
 | `bin/agent-runner` | CLI（bash，底下是 `systemctl --user`） |
-| `prompts/implement.md` `prompts/review.md` `prompts/verify.md` `prompts/merge.md` | 實作、reviewer、驗收、解合併衝突的 prompt |
+| `prompts/implement.md` `prompts/review.md` `prompts/verify.md` | 實作、reviewer、驗收的 prompt |
 | `Dockerfile` | sandbox image |
 | `systemd/` | service 與 timer |
 | `install.sh` | 安裝／修環境 |
