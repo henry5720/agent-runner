@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { IN_PROGRESS_LABEL, RUNNER_LABEL } from "./names.js";
+import { preparePrEvidence } from "./prEvidence.js";
 import type { GitHub, NewPr } from "./ports.js";
 import type { Issue } from "./types.js";
 
@@ -43,7 +44,7 @@ export function parseIssues(json: string): ListedIssue[] {
 }
 
 /** 操作者的 `gh`。所有指令都帶 `-R <repo>`，不依賴 cwd。 */
-export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: string; env?: NodeJS.ProcessEnv }): GitHub {
+export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: string; env?: NodeJS.ProcessEnv; evidenceRoot?: string }): GitHub {
   const { repo, pickSearch, ghBin = "gh", env = process.env } = opts;
 
   async function gh(args: string[]): Promise<string> {
@@ -76,6 +77,26 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       return await fn(path);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  async function prepareEvidence(body: string, evidence: NewPr["evidence"]) {
+    try { return await preparePrEvidence(body, evidence, opts.evidenceRoot); }
+    catch {
+      return { body: `${body}\n\n**證據附件上傳未完成**：附件來源未通過檢查；原始回報已保留，請補傳後再驗收。`, paths: [] as string[] };
+    }
+  }
+
+  // 先確保 PR 存在，再發布附件；部分上傳失敗時仍保留 PR 與已成功的網址。
+  async function publishEvidence(number: number, prepared: Awaited<ReturnType<typeof preparePrEvidence>>) {
+    if (!prepared.paths.length) return;
+    try {
+      await withBodyFile(prepared.body, (path) => gh(["pr", "edit", String(number), "-R", repo, ...prepared.paths.flatMap((file) => ["--attach", file]), "--body-file", path]));
+    } catch {
+      const current = JSON.parse(await gh(["pr", "view", String(number), "-R", repo, "--json", "body"])) as { body: string };
+      const body = `${current.body}\n\n**證據附件上傳未完成**：部分圖片可能尚無網址；原檔仍在 runner 主機，請補傳後再驗收。`;
+      await withBodyFile(body, (path) => gh(["pr", "edit", String(number), "-R", repo, "--body-file", path]));
+      console.error(`[evidence] PR #${number} 附件上傳未完成`);
     }
   }
 
@@ -138,7 +159,8 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       await gh(["issue", "close", String(issue), "-R", repo]);
     },
     async createPr(pr: NewPr) {
-      const stdout = await withBodyFile(pr.body, (path) =>
+      const prepared = await prepareEvidence(pr.body, pr.evidence);
+      const stdout = await withBodyFile(prepared.paths.length ? pr.body : prepared.body, (path) =>
         gh([
           "pr", "create", "-R", repo,
           "--base", pr.base, "--head", pr.head, "--title", pr.title, "--body-file", path,
@@ -149,15 +171,19 @@ export function createGitHub(opts: { repo: string; pickSearch: string; ghBin?: s
       const url = stdout.trim().split("\n").pop() ?? "";
       const match = /\/pull\/(\d+)$/.exec(url);
       if (!match) throw new Error(`gh pr create: unexpected output ${JSON.stringify(stdout)}`);
-      return { number: Number(match[1]), url };
+      const number = Number(match[1]);
+      await publishEvidence(number, prepared);
+      return { number, url };
     },
     async findOpenPr(head) {
       const stdout = await gh(["pr", "list", "-R", repo, "--head", head, "--state", "open", "--json", "number,url,isDraft,body"]);
       const [pr] = JSON.parse(stdout) as { number: number; url: string; isDraft: boolean; body: string }[];
       return pr ? { number: pr.number, url: pr.url, isDraft: pr.isDraft, body: pr.body } : null;
     },
-    async updatePr(number, { title, body }) {
-      await withBodyFile(body, (path) => gh(["pr", "edit", String(number), "-R", repo, "--title", title, "--body-file", path]));
+    async updatePr(number, { title, body, evidence }) {
+      const prepared = await prepareEvidence(body, evidence);
+      await withBodyFile(prepared.paths.length ? body : prepared.body, (path) => gh(["pr", "edit", String(number), "-R", repo, "--title", title, "--body-file", path]));
+      await publishEvidence(number, prepared);
     },
     async markPrDraft(number) {
       await gh(["pr", "ready", String(number), "-R", repo, "--undo"]);

@@ -8,7 +8,7 @@ import { failureReason, releaseIssue, removeOldWorktrees, wrapUpCrash, wrapUpNee
 import { agentBranch, IN_PROGRESS_LABEL, NEEDS_INFO_LABEL, RUNNER_LABEL, worktreeName } from "./names.js";
 import { type Ending, noticeText } from "./notice.js";
 import { prBody, prTitle, specPrBody, verificationText } from "./prBody.js";
-import type { Deps } from "./ports.js";
+import type { Deps, PrEvidence } from "./ports.js";
 import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 
@@ -261,7 +261,7 @@ async function openAgentPr(
 ): Promise<Ending> {
   const n = issue.number;
   // push 和 gh 都在 host 做，sandbox 裡沒有 GH_TOKEN
-  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed) });
+  const pr = await pushWithDraftPr(config, deps, { head: agentBranch(n), base, title: prTitle(result, review), body: prBody(n, result, review, reviewed), evidence: prEvidence(reviewed) });
   if (review.outcome === "wip") {
     await deps.github.comment(
       n,
@@ -300,8 +300,8 @@ async function closeIntoSpec(
   // gh 拿不到標題（或 spec 標題是空的）時也要有個 PR 標題
   const title = issue.parentTitle.trim() || `spec #${spec}`;
   const pr = existing
-    ? (await github.updatePr(existing.number, { title, body }), existing)
-    : await github.createPr({ base: config.baseBranch, head: integration, title, body, draft: true, assignee: config.operator });
+    ? (await github.updatePr(existing.number, { title, body, evidence: prEvidence(review) }), existing)
+    : await github.createPr({ base: config.baseBranch, head: integration, title, body, draft: true, assignee: config.operator, evidence: prEvidence(review) });
   await github.comment(
     n,
     [
@@ -323,13 +323,13 @@ async function closeIntoSpec(
 async function pushWithDraftPr(
   config: Config,
   { github, git }: Deps,
-  pr: { head: string; base: string; title: string; body: string },
+  pr: { head: string; base: string; title: string; body: string; evidence?: PrEvidence },
 ): Promise<{ number: number; url: string }> {
   const existing = await github.findOpenPr(pr.head);
   if (existing && !existing.isDraft) await github.markPrDraft(existing.number);
   await git.push(pr.head);
   if (existing) {
-    await github.updatePr(existing.number, { title: pr.title, body: pr.body });
+    await github.updatePr(existing.number, { title: pr.title, body: pr.body, evidence: pr.evidence });
     return existing;
   }
   return github.createPr({ ...pr, draft: true, assignee: config.operator });
@@ -354,4 +354,11 @@ async function askAboutForeignCommits(github: Deps["github"], n: number, authors
     ].join("\n"),
   );
   return reason;
+}
+
+/** 只發布真正呼叫 skill 且採信的驗收結果引用的證據。 */
+function prEvidence(review: ReviewResult): PrEvidence | undefined {
+  if (review.browserVerificationFailure || !review.browserVerification?.skillInvoked) return;
+  const report = review.browserVerification.report;
+  return { directory: report.evidenceDir, files: [...new Set(report.criteria.flatMap((criterion) => criterion.evidence))] };
 }

@@ -9,6 +9,7 @@ describe("runRound — browser verification", () => {
     deps.sandbox.verificationResults[42] = verificationResult();
     await runRound(testConfig, deps);
     expect(deps.github.prs[0]).toMatchObject({ draft: true, title: "feat(demo): do the thing" });
+    expect(deps.github.prs[0]).toMatchObject({ evidence: { directory: "/state/evidence/run", files: ["toast.png"] } });
     expect(deps.github.prs[0]?.body).toContain("| 條件 | 結果 | 帳號 | 看到什麼／原因 | 證據 |");
     expect(deps.github.prs[0]?.body).toContain("| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |");
   });
@@ -84,6 +85,7 @@ describe("runRound — browser verification", () => {
     expect(deps.github.prs[0]?.title).toBe("[WIP] feat(demo): do the thing");
     expect(deps.github.prs[0]?.body).toContain("驗收 run 沒有呼叫 verify-in-browser，結果不採信");
     expect(deps.github.prs[0]?.body).not.toContain("| 刪除後出現 toast | passed |");
+    expect(deps.github.prs[0]?.evidence).toBeUndefined();
   });
 
   it.each([
