@@ -15,7 +15,53 @@ async function fixture() {
 }
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
+const unverifiable = (directory: string) => `## 瀏覽器驗收\n\n證據：${directory}（runner 主機本機，不在 git）\n\n驗不了：登入失敗，見 environment-config-failed.png\n\n判定 model：m`;
+
 describe("PR evidence publication", () => {
+  it("attaches images from an unverifiable run that has no criteria", async () => {
+    const { root, directory } = await fixture();
+    await writeFile(join(directory, "environment-config-failed.png"), png);
+    const result = await preparePrEvidence(unverifiable(directory), { directory, files: [] }, root);
+    const failed = join(directory, "environment-config-failed.png"), screen = join(directory, "screen.png");
+    expect(result.paths).toEqual([failed, screen]);
+    expect(result.body).toBe(`## 瀏覽器驗收\n\n證據：${directory}（runner 主機本機，不在 git）\n\n其他證據：![environment-config-failed.png](<${failed}>)、![screen.png](<${screen}>)\n\n驗不了：登入失敗，見 environment-config-failed.png\n\n判定 model：m`);
+  });
+  it("lists unreferenced images of a verified run right after the evidence line", async () => {
+    const { root, directory, body } = await fixture();
+    await writeFile(join(directory, "extra.png"), png);
+    const result = await preparePrEvidence(body, { directory, files: ["screen.png"] }, root);
+    const extra = join(directory, "extra.png"), screen = join(directory, "screen.png");
+    expect(result.paths).toEqual([extra, screen]);
+    expect(result.body).toContain(`證據：${directory}（runner 主機本機，不在 git）\n\n其他證據：![extra.png](<${extra}>)\n\n| 條件 |`);
+    expect(result.body).toContain(`| ![screen.png](<${screen}>)、checks.txt |`);
+  });
+  it("attaches nested media but skips hidden directories, non-media files and fake images", async () => {
+    const { root, directory } = await fixture();
+    await mkdir(join(directory, ".playwright-cli"));
+    await writeFile(join(directory, ".playwright-cli", "page.png"), png);
+    await mkdir(join(directory, "step", ".cache"), { recursive: true });
+    await writeFile(join(directory, "step", ".cache", "c.png"), png);
+    await writeFile(join(directory, "step", "dialog.png"), png);
+    await writeFile(join(directory, "state.json"), "[]");
+    await writeFile(join(directory, "fake.png"), "secret text");
+    const result = await preparePrEvidence(unverifiable(directory), { directory, files: [] }, root);
+    expect(result.paths).toEqual([join(directory, "screen.png"), join(directory, "step", "dialog.png")]);
+    expect(result.body).not.toMatch(/page\.png|c\.png|state\.json|fake\.png\]/);
+  });
+  it("attaches the first 50 files by name and says how many were left out", async () => {
+    const { root, directory } = await fixture();
+    for (let i = 0; i < 51; i++) await writeFile(join(directory, `s${String(i).padStart(2, "0")}.png`), png);
+    const result = await preparePrEvidence(unverifiable(directory), { directory, files: [] }, root);
+    expect(result.paths).toHaveLength(50);
+    expect(result.paths.at(-1)).toBe(join(directory, "s49.png"));
+    expect(result.body).not.toContain("s50.png");
+    expect(result.body).toContain("另有 2 個證據檔超過一次 50 個附件的上限沒附，原檔在證據資料夾");
+  });
+  it("leaves the body alone when the evidence directory was never created", async () => {
+    const { root, directory } = await fixture();
+    const body = unverifiable(join(directory, "missing"));
+    await expect(preparePrEvidence(body, { directory: join(directory, "missing"), files: [] }, root)).resolves.toEqual({ body, paths: [] });
+  });
   it("embeds referenced images once and keeps non-media files local", async () => {
     const { root, directory, body } = await fixture();
     const result = await preparePrEvidence(body, { directory, files: ["screen.png", "screen.png", "checks.txt", "auth-admin.json"] }, root);
