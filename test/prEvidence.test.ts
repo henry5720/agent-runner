@@ -57,6 +57,17 @@ describe("PR evidence publication", () => {
     expect(result.body).not.toContain("s50.png");
     expect(result.body).toContain("另有 2 個證據檔超過一次 50 個附件的上限沒附，原檔在證據資料夾");
   });
+  it("keeps referenced files within the 50 limit before unreferenced ones", async () => {
+    const { root, directory, body } = await fixture();
+    for (let i = 0; i < 51; i++) await writeFile(join(directory, `a${String(i).padStart(2, "0")}.png`), png);
+    const result = await preparePrEvidence(body, { directory, files: ["screen.png"] }, root);
+    expect(result.paths).toHaveLength(50);
+    expect(result.paths).toContain(join(directory, "screen.png"));
+    expect(result.paths).toContain(join(directory, "a48.png"));
+    expect(result.body).not.toContain("a49.png");
+    expect(result.body).toContain(`| ![screen.png](<${join(directory, "screen.png")}>)、checks.txt |`);
+    expect(result.body).toContain("另有 2 個證據檔");
+  });
   it("leaves the body alone when the evidence directory was never created", async () => {
     const { root, directory } = await fixture();
     const body = unverifiable(join(directory, "missing"));

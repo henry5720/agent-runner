@@ -63,8 +63,9 @@ export async function preparePrEvidence(body: string, evidence?: PrEvidence, evi
     if (paths.has(name)) continue;
     try { paths.set(name, await checkedPath(directory, name)); } catch { /* 沒被引用的不合格檔不附 */ }
   }
+  // 名額先給被引用的（照引用順序），剩下的才給沒被引用的（照檔名）
   const names = [...paths.keys()].sort();
-  const selected = new Set(names.slice(0, LIMIT));
+  const selected = new Set([...referenced, ...names.filter((name) => !referenced.includes(name))].slice(0, LIMIT));
   const omitted = names.length - selected.size;
 
   const anchor = `證據：${evidence.directory}（runner 主機本機，不在 git）`;
