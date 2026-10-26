@@ -74,6 +74,8 @@ switch (command) {
       GIT_AUTHOR: config.gitAuthor,
       PNPM_STORE: config.pnpmStorePath,
       SECRETS_FILE: config.secretsFile,
+      AGENT_KIND: config.agent,
+      CODEX_CONFIG_PATH: config.codexConfigPath,
     };
     console.log(
       Object.entries(vars)

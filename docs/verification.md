@@ -116,3 +116,16 @@ bare 的 `agent/40` 還是 `1df4ebd`。
 - 真的 issue、真的 draft PR 的整條流程→ 在真機上用真的 issue 人工驗收，不在這份紀錄裡。
 - 目標 repo 的 `pnpm install --frozen-lockfile` + `playwright install chromium` 在 sandbox 裡實際花多久、
   會不會超過 hook 的上限：這次對象是拋棄式 repo，沒有跑。
+
+
+## 4. Codex company gateway（2026-10-26）
+
+- sandcastle `0.12.0` 原生 `codex()`；Docker 內 Codex CLI `0.164.0`，model `gpt-6.1-sol`、effort `medium`，使用公司 gateway 的 API key。
+- runner 專用 provider TOML 唯讀掛入 sandbox，API key 從獨立 secret 注入；沒有掛 host 的 Codex 設定、MCP、hooks、登入狀態或 GitHub credentials。
+- 使用 `/tmp/runner41/repo` 的隔離靜態頁面跑真正的 `createSandbox().verify()`，不是 mocked SDK。正常 setup 安裝依賴、Chromium 與 playwright-cli 對應瀏覽器。
+- 結果：`verified`、`skillInvoked: true`，1 passed／0 failed／1 skipped，包含 setup 共 112.08 秒。Codex 用 playwright-cli 開 Chromium、截圖並以 view_image 查看；頁面標題符合條件。非畫面的 typecheck 條件正確 skipped。
+- 真實 session 使用 code mode：`custom_tool_call` 內包單一 `tools.exec_command`，輸出是 content blocks。初次分類 smoke 發現格式差異後補強 parser，再用上述瀏覽器 smoke 驗證接線；不是只憑 agent 宣稱使用 skill。
+- `state.json` 是空陣列，stagingRecords=0；未連 staging、未發 Slack／PR，登入狀態與 `.playwright-cli` 已清掉。實際檢查捕捉 session 與證據不含 gateway key，未輸出 key 值。
+- 本機結果、圖片、稽核留在 `/tmp/runner41/`，不進 git，暫存檔不保證永久保留。
+
+未驗：改用 Codex 後，真實 teamsync issue 的實作→review→瀏覽器驗收→PR 整輪、WebKit，以及真實合併衝突。既有 #29 的 Claude 全流程驗證不能算成 Codex 全流程驗證。這次只確認 gateway、隔離設定、Codex tool session、結構化結果與 Chromium 圖片流程；正式排程維持 off。
