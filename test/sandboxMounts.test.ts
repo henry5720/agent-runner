@@ -52,11 +52,11 @@ describe("sandbox configuration mounts", () => {
     expect(() => sandboxMounts(config, "verify")).toThrow("配置來源不存在");
   });
 
-  it("includes merge skills only in a merge run", () => {
-    const merge = skill("resolving-merge-conflicts", { phases: ["merge"] });
-    config.sandboxSkills = [merge];
-    expect(sandboxMounts(config, "review").some((mount) => mount.hostPath === merge.hostPath)).toBe(false);
-    expect(sandboxMounts(config, "merge")).toContainEqual({ hostPath: merge.hostPath, sandboxPath: "/home/agent/.claude/skills/resolving-merge-conflicts", readonly: true });
+  it("includes review skills only in a review run", () => {
+    const review = skill("code-review", { phases: ["review"] });
+    config.sandboxSkills = [review];
+    expect(sandboxMounts(config, "implement").some((mount) => mount.hostPath === review.hostPath)).toBe(false);
+    expect(sandboxMounts(config, "review")).toContainEqual({ hostPath: review.hostPath, sandboxPath: "/home/agent/.claude/skills/code-review", readonly: true });
   });
 
   it("resolves host symlink targets before mounting the complete skill directory", () => {

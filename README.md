@@ -71,10 +71,10 @@ flowchart TD
 ```
 
 圖只畫實作與 reviewer 跑完的路。reviewer 判需要驗時，另外起驗收 run 才開 PR。實作 run 回報單子不清楚 → ❓ needs-info（不跑 reviewer run）；任一個 run timeout、crash 或遇到 `off --now` → 💥 crash。
-起點是 `origin/<baseBranch>`；spec 的 sub-issue 是 `origin/agent/<S>`（還沒建就從 `origin/<baseBranch>`），全過之後還要合進整合分支，合併有衝突時多跑一次 merge run，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
+起點是 `origin/<baseBranch>`；spec 的 sub-issue 是 `origin/agent/<S>`（還沒建就從 `origin/<baseBranch>`），全過之後還要合進整合分支，合併有衝突時直接回 `[WIP]` 交給人處理，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 接單時 label 和 assignee 怎麼變見[issue 的 label 怎麼變](#issue-的-label-怎麼變)；push 和開 PR 都在 host 上做。
 
-實作 run、reviewer run 和驗收 run（spec 的 sub-issue 合併有衝突時還有 merge run）共用一個 `timeoutMinutes` 的上限。開發流程與驗證範圍依目標 repo 的 `CLAUDE.md`，runner 不強制 TDD 或固定檢查順序。
+實作 run、reviewer run 和驗收 run 共用一個 `timeoutMinutes` 的上限。開發流程與驗證範圍依目標 repo 的 `CLAUDE.md`，runner 不強制 TDD 或固定檢查順序。
 目標 repo 的 pre-commit 在 sandbox 裡不會跑（image 設了 `CI=1`），檢查仍依 repo 對 worktree／無 hook 的規定。未執行或未涵蓋的項目須回報 `unverified`（項目與原因）；必要檢查未驗不可回報 `pass`。
 
 ### 五種結局
@@ -89,7 +89,7 @@ flowchart TD
 
 PR body 固定是：`Closes #N` → 變更摘要（含 review 修了什麼、依賴變動）→ `## 驗證`（sandbox 實際指令、結果、未驗項目與原因）→ `## 瀏覽器驗收` → `[WIP]` 才有的「沒過的檢查」→ 署名。
 
-`agent/<N>` 的 PR 每張都有「瀏覽器驗收」段；整合分支 PR 裡每張 sub-issue 也有同一種驗收段，標題降一級。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗且 reviewer 全過時另起驗收 run，回報逐條 `passed`／`failed`／`skipped` 的表格，列出帳號前綴、看到什麼或原因、證據相對路徑。sub-issue 先驗收才合併；驗收轉 `[WIP]` 就開 PR 進整合分支，不合併、不關單。合併衝突解掉後保留合併前的表格，加註「解完合併衝突後沒有重驗」；解不掉而轉 `[WIP]` 時，這段仍照 reviewer 原本的判斷寫。
+`agent/<N>` 的 PR 每張都有「瀏覽器驗收」段；整合分支 PR 裡每張 sub-issue 也有同一種驗收段，標題降一級。要不要驗由 reviewer run 依 diff 有沒有碰到使用者看得到的畫面或操作判斷：判不用驗寫 `不驗：<原因>（reviewer 判斷）`；reviewer 回 `wip` 寫 `reviewer 回 wip，沒有起驗收 run`；判要驗且 reviewer 全過時另起驗收 run，回報逐條 `passed`／`failed`／`skipped` 的表格，列出帳號前綴、看到什麼或原因、證據相對路徑。sub-issue 先驗收才合併；驗收轉 `[WIP]` 就開 PR 進整合分支，不合併、不關單。合併有衝突而轉 `[WIP]` 時，保留合併前的表格與證據，這段仍照 reviewer 原本的判斷寫，不把衝突誤寫成 reviewer 或瀏覽器驗收失敗。
 整合分支 `agent/<S>` 的 PR 是另一種格式：`Closes #S` → sub-issue 說明 → `## 驗證` → 每張合進來的 sub-issue 一段（合併後的 commit、摘要、驗證與未驗）→ 署名，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)。
 draft 階段沒有 CI 燈號（見[目標 repo 要配合的事](#目標-repo-要配合的事)），人只能靠這份 body 判斷。
 
@@ -134,24 +134,11 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | 開分支 | `agent/<A>` 從 `origin/agent/<S>` 開；遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 開 |
 | 建整合分支 | 第一次有 sub-issue 全過或 `[WIP]` 時，遠端還沒有 `agent/<S>` 就從 `origin/<baseBranch>` 建；needs-info、crash 不建 |
 | ✅ 全過 | host 上 `git merge --no-edit agent/<A>` 合進 `agent/<S>` 並 push（不 rebase；`agent/<S>` 沒動過時 git 會直接 fast-forward）→ 還沒有開著的 `agent/<S>` → `<baseBranch>` draft PR 就開一張（assign 操作者、body 有 `Closes #S`），有就更新它的 body → #A 留言（合併後的 commit、驗證指令）後關掉。#A 之前 `[WIP]` 開過 PR 的，合併前先 push 新的 `agent/<A>`，合進去後那張 PR 會被 GitHub 標成 merged |
-| 合併有衝突 | host 上 `merge --abort`，再跑一次 sandbox（merge run，見下表），讓 agent 在 `agent/<S>` 上合、解衝突並重跑檢查 |
+| 合併有衝突 | host 上 `merge --abort`，不改整合分支、不另開 sandbox；直接照 `[WIP]` 收尾，保留 `agent/<A>` 與驗收證據，留言和 PR 說明需人工解衝突 |
 | 🚧 `[WIP]` | push `agent/<A>`，開 `[WIP]` draft PR 進 `agent/<S>`（不是 `<baseBranch>`），拿掉 assignee，#A 不關；人修好、merge 進 `agent/<S>` 後手動關 |
 | ❓ needs-info、💥 crash／timeout | 收尾跟一般 issue 一樣，不動 `agent/<S>` |
 | 重做 | 從最新的 `origin/agent/<S>` 重開，拿得到期間別張合進去、或人在上面 push 的 commit |
 
-合併有衝突時的 merge run（prompt 是 `prompts/merge.md`，形狀照 sandcastle `parallel-planner` 的 merge prompt）：
-
-| merge run 的結果 | runner 做什麼 | `agent/<S>` |
-| --- | --- | --- |
-| 解掉、檢查都過 | 本地 `agent/<S>` 同時包含 `agent/<A>` 和 `origin/agent/<S>` 才 push（不 force），照 ✅ 全過收尾；#A 的留言和整合分支 PR 那段多寫「合併時有衝突」和解完後重跑的檢查 | 推上合併結果 |
-| 解不掉、或解完檢查沒過 | 照 🚧 `[WIP]` 收尾，留言寫明是合併衝突、列出 merge run 回報的卡點 | 不動 |
-| 回報解掉，但 `agent/<S>` 上沒有合併結果 | 照 🚧 `[WIP]` 收尾，不 push | 不動 |
-| 解掉了，但 merge run 期間有人往遠端 `agent/<S>` push | push 不 force、被拒；照 🚧 `[WIP]` 收尾，留言寫明整合分支在 merge run 期間被改過、push 被拒 | 留著人 push 的，不蓋掉 |
-| timeout／crash／`off --now` | 照 💥 crash 收尾，原因寫明是 merge run；sandcastle 留下解到一半的 `agent/<S>` worktree 時，留言附路徑、說明下次這張 spec 合併有衝突時會被清掉 | 不動 |
-
-- merge run 跟實作、reviewer、驗收 run 共用同一個 `timeoutMinutes`（整張單的上限），所以實作做太久，merge run 可能一開始就 timeout。
-- sandbox 裡沒有 GitHub 權限，push 一樣由 host 做。
-- merge run 依 prompt 讀兩邊的 commit、diff 與衝突檔，保留兩邊意圖後重跑檢查。
 - 整合分支那張 PR 一直是 draft，runner 不轉 ready；什麼時候轉 ready、merge 由人決定。`<baseBranch>` 不是預設分支時 `Closes #S` 不會生效，spec 要人關。
 - PR body 每張 sub-issue 一段（用 HTML 註解標起來），runner 每次都整份重寫：段落以外手改的字會被蓋掉。
 - 「有別人的 commit」只看 `agent/<A>` 相對 `origin/agent/<S>`：人在 `agent/<S>` 上 commit 會被當成基底往下做，不會讓 runner 停手。
@@ -164,7 +151,7 @@ spec 的進度集中在一張 `agent/<S>` → `<baseBranch>` 的 draft PR。#A �
 | agent-runner 本身 | host `~/agents/agent-runner` | 拿不到 |
 | `gh`（操作者的登入） | host | 拿不到：push、開 PR、改 label、留言都由 host 上的 runner 做 |
 | secret 檔 `secretsFile`（`chmod 600`） | host | 只傳所選 agent 的 `CODEX_GATEWAY_API_KEY` 或 `CLAUDE_CODE_OAUTH_TOKEN`，沒有 `GH_TOKEN` |
-| bot clone `botClonePath` | host | sandcastle 從它開 worktree 給 sandbox：實作、reviewer 和驗收 run 是 `agent/<N>`，merge run 是 `agent/<S>` |
+| bot clone `botClonePath` | host | sandcastle 從它開 worktree 給 sandbox：實作、reviewer 和驗收 run 都是 `agent/<N>`；整合分支由 host Git 合併 |
 | global 規則 `globalRulesPath` | host 部署結果 | Codex 掛 `~/.codex/AGENTS.md`；Claude 掛 `~/.claude/CLAUDE.md` |
 | Codex gateway 設定 `codexConfigPath` | host 的 runner 專用檔 | Codex 才唯讀掛 `~/.codex/config.toml`；API key 從 secret 注入 |
 | pnpm store `pnpmStorePath` | host | 可寫掛載 |
@@ -181,7 +168,7 @@ chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills sou
 
 每次 run 在呼叫 sandcastle 前檢查 global 檔、當次 skills 的目錄與 `SKILL.md`、依賴清單，缺少就拒絕啟動該 run。來源先解析 realpath，避免把 host target 的絕對 symlink 留給 container；掛完整 skill 目錄而非單一入口。這不是 skill 腳本的安全掃描，allowlist 內容仍須可信。
 
-配置不烘進 image：host 更新後，新 run 會重新解析與掛載，無須 rebuild。唯讀僅限制 container 寫入，host 在 run 期間仍可能改內容；為了讓實作、review、驗收、merge 使用同一版，整張單完成前不要執行 chezmoi apply 或 Skillshare update／pull。此版本未提供不可變 snapshot 或版本 hash。
+配置不烘進 image：host 更新後，新 run 會重新解析與掛載，無須 rebuild。唯讀僅限制 container 寫入，host 在 run 期間仍可能改內容；為了讓實作、review、驗收使用同一版，整張單完成前不要執行 chezmoi apply 或 Skillshare update／pull。此版本未提供不可變 snapshot 或版本 hash。
 
 目標 repo 的 project MCP 載入方式、瀏覽器條件與未驗範圍見 [sandbox MCP 參考](docs/sandbox-mcp.md)。
 
@@ -277,11 +264,11 @@ agent 半夜重做時每次 push 都會觸發目標 repo 的 CI，所以目標 r
 | `pickSearch` | 挑單的額外搜尋條件 |
 | `maxPerRound` | 一輪最多接幾張 |
 | `roundIntervalMinutes` | 打開之後每隔多久一輪 |
-| `timeoutMinutes` | 每張單的上限（實作、reviewer、驗收、merge run 一起算）；離自動關不到這麼久就不接新單 |
+| `timeoutMinutes` | 每張單的上限（實作、reviewer、驗收 run 一起算）；離自動關不到這麼久就不接新單 |
 | `autoOff` | 自動關的星期、時間、時區；也是「同一原因一晚只通知一次」的一晚的結尾 |
 | `baseBranch` | PR 的 base，也是 `agent/<N>` 的起點（spec 的 sub-issue 從整合分支開，見[spec 的 sub-issue 走整合分支](#spec-的-sub-issue-走整合分支)） |
 | `gitAuthor` | runner 的 commit author；重接時拿來分辨哪些 commit 是人手做的 |
-| `agent` `model` | sandbox 使用的 CLI（`codex`／`claude`）與 model；實作、review、驗收與 merge 共用 |
+| `agent` `model` | sandbox 使用的 CLI（`codex`／`claude`）與 model；實作、review、驗收共用 |
 | `codexConfigPath` `codexEffort` | runner 專用 gateway 設定與 Codex reasoning effort |
 | `botClonePath` `pnpmStorePath` `secretsFile` `stateDir` | 各種 host 路徑 |
 | `nvmrcPath` `globalRulesPath` `sandboxSkills` `imageName` | image、global 規則與 skill allowlist 掛載 |

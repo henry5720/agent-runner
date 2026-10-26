@@ -40,6 +40,8 @@
 
 ## 3. merge run 在 sandbox 裡合得到 `agent/<A>` 嗎→ **合得到，但 runner 現在的 `merge()` 一跑就失敗**
 
+> 歷史實測：merge run 已在 #28 移除。目前遇到合併衝突會 abort 並直接回 WIP，以下保留當時結果，不代表目前流程。
+
 - 日期：2026-10-06，同一台 company-ec2、同一個 image `sandcastle-teamsync:82de6ac7627b`（sandbox 內 Claude Code `2.1.289`），
   runner 在 `fd59348`（main），model `claude-haiku-4-5`。
 - 對象：拋棄式 bare repo 當 origin、一份 clone 當 bot clone（repo 層 `user.name` = `henry (agent)`），都不在 GitHub 上。
@@ -129,3 +131,9 @@ bare 的 `agent/40` 還是 `1df4ebd`。
 - 本機結果、圖片、稽核留在 `/tmp/runner41/`，不進 git，暫存檔不保證永久保留。
 
 未驗：改用 Codex 後，真實 teamsync issue 的實作→review→瀏覽器驗收→PR 整輪、WebKit，以及真實合併衝突。既有 #29 的 Claude 全流程驗證不能算成 Codex 全流程驗證。這次只確認 gateway、隔離設定、Codex tool session、結構化結果與 Chromium 圖片流程；正式排程維持 off。
+
+## 5. 合併衝突直接回 WIP（#28）
+
+移除 merge run；子單檢查與瀏覽器驗收通過後，host Git 合進整合分支若有衝突，就 abort、保留整合分支與子單改動，開 WIP draft PR 進整合分支、保持 issue open，交給人解衝突。原有瀏覽器驗收結果與證據保留。
+
+回歸驗證：舊版在新增的衝突行為測試有 5 項失敗；修改後核心 5 檔、73 tests 通過，包含真實 Git repo 的衝突 abort、遠端整合分支未變與暫存 worktree 清理。這次沒有啟動 agent 或瀏覽器，也沒有對真實產品分支製造衝突。

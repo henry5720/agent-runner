@@ -1,7 +1,7 @@
 import type { AgentKind } from "./config.js";
 import { browserVerificationText } from "./browserVerification.js";
 import { agentBranch } from "./names.js";
-import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
+import type { ImplementResult, ReviewResult } from "./result.js";
 
 type Verification = ImplementResult["verification"];
 type Unverified = ImplementResult["unverified"];
@@ -42,11 +42,10 @@ export function prBody(issueNumber: number, impl: ImplementResult, review: Revie
 }
 
 /** 一般 PR 與整合分支 sub-issue 共用，後者標題降一級。 */
-function browserVerifySection(review: ReviewResult, heading = "##", resolvedConflict = false): string {
+function browserVerifySection(review: ReviewResult, heading = "##"): string {
   return [
     `${heading} 瀏覽器驗收`,
     browserVerifyText(review),
-    ...(resolvedConflict ? ["解完合併衝突後沒有重驗"] : []),
   ].join("\n\n");
 }
 
@@ -59,9 +58,9 @@ function browserVerifyText(review: ReviewResult): string {
   return "驗收 run 沒交出合格結果";
 }
 
-/** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查；合併衝突由 merge run 解掉時多一組「解完合併衝突後」，那組才是最後一次 */
-export function verificationText(impl: ImplementResult, review: CheckResult, heading = "###", resolution?: CheckResult): string {
-  const section = (label: string, result: ImplementResult | CheckResult) =>
+/** 驗證分「實作後」和「review 後」兩組，review 後那組是最後一次檢查。 */
+export function verificationText(impl: ImplementResult, review: ReviewResult, heading = "###"): string {
+  const section = (label: string, result: ImplementResult | ReviewResult) =>
     [
       `${heading} ${label}`,
       commands(result.verification) || "（沒有回報任何驗證指令）",
@@ -71,7 +70,6 @@ export function verificationText(impl: ImplementResult, review: CheckResult, hea
   return [
     section("實作後", impl),
     section("review 後", review),
-    ...(resolution ? [section("解完合併衝突後", resolution)] : []),
   ].join("\n\n");
 }
 
@@ -83,8 +81,6 @@ export interface MergedSubIssue {
   sha: string;
   impl: ImplementResult;
   review: ReviewResult;
-  /** 合併有衝突、由 merge run 解掉時的回報 */
-  resolution?: CheckResult;
 }
 
 const entryPattern = /<!-- sub-issue #(\d+) -->[\s\S]*?<!-- \/sub-issue #\1 -->/g;
@@ -101,9 +97,8 @@ export function specPrBody(spec: number, previousBody: string | null, merged: Me
     `合併後的 commit \`${merged.sha}\``,
     merged.impl.summary,
     ...(merged.review.summary.trim() ? [`**Review 修正**\n\n${merged.review.summary}`] : []),
-    ...(merged.resolution ? [`**合併衝突**（由 agent 解掉）${merged.resolution.summary.trim() ? `\n\n${merged.resolution.summary}` : ""}`] : []),
-    `**驗證**\n\n${verificationText(merged.impl, merged.review, "####", merged.resolution)}`,
-    browserVerifySection(merged.review, "###", Boolean(merged.resolution)),
+    `**驗證**\n\n${verificationText(merged.impl, merged.review, "####")}`,
+    browserVerifySection(merged.review, "###"),
     `<!-- /sub-issue #${merged.number} -->`,
   ].join("\n\n");
   const at = entries.findIndex((e) => e.number === merged.number);
