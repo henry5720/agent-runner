@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prBody, specPrBody, verificationText } from "../src/prBody.js";
-import { checkResultSchema, implementResultSchema, reviewResultSchema } from "../src/result.js";
+import { implementResultSchema, reviewResultSchema } from "../src/result.js";
 import { passResult, reviewResult } from "./support/fakes.js";
 
 describe("verification reporting", () => {
@@ -15,19 +15,20 @@ describe("verification reporting", () => {
     expect(body).toContain("browser：沒有 browser CLI");
   });
 
-  it("preserves previous integration entries and reports merge-run unverified items", () => {
+  it("preserves historical integration entries while appending current reviewer results", () => {
     const first = { number: 42, title: "first", sha: "abc", impl: passResult(), review: reviewResult() };
-    const previous = specPrBody(40, null, first);
+    const previous = specPrBody(40, null, first).replace("### #42 first", "### #42 first\n\n歷史合併記錄：解完合併衝突後沒有重驗");
     const body = specPrBody(40, previous, {
       ...first,
       number: 43,
       title: "second",
-      resolution: reviewResult({ unverified: [{ item: "實際寄信", reason: "避免外部寫入" }] }),
+      review: reviewResult({ unverified: [{ item: "實際寄信", reason: "避免外部寫入" }] }),
     });
     expect(body.match(/^## 驗證$/gm)).toHaveLength(1);
     expect(body).toContain("### #42 first");
     expect(body).toContain("### #43 second");
-    expect(body).toContain("#### 解完合併衝突後");
+    expect(body).toContain("歷史合併記錄：解完合併衝突後沒有重驗");
+    expect(body).toContain("#### review 後");
     expect(body).toContain("實際寄信：避免外部寫入");
   });
 
@@ -45,11 +46,10 @@ describe("verification reporting", () => {
     expect(implementResultSchema.safeParse(passResult()).success).toBe(true);
   });
 
-  it("requires the reviewer to judge browser verification with a reason, but not the merge run", () => {
+  it("requires the reviewer to judge browser verification with a reason", () => {
     const { browserVerify, ...missing } = reviewResult();
     expect(reviewResultSchema.safeParse(missing).success).toBe(false);
     expect(reviewResultSchema.safeParse(reviewResult({ browserVerify: { needed: false, reason: " " } })).success).toBe(false);
-    expect(checkResultSchema.safeParse(missing).success).toBe(true);
   });
 
   it("rejects empty unverified items or reasons", () => {

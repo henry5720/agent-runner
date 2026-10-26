@@ -7,12 +7,12 @@ import { Output, run, StructuredOutputError } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Config, SandboxPhase } from "./config.js";
-import type { ImplementRequest, MergeRequest, Sandbox } from "./ports.js";
+import type { ImplementRequest, Sandbox } from "./ports.js";
 import { browserVerificationSchema, InvalidVerificationResultError } from "./browserVerification.js";
 import { agentLayout, sandboxAgent } from "./sandboxAgent.js";
 import { verificationSkillInvoked } from "./verificationSession.js";
 import { promptArgs } from "./promptArgs.js";
-import { checkResultSchema, implementResultSchema, reviewResultSchema } from "./result.js";
+import { implementResultSchema, reviewResultSchema } from "./result.js";
 import { type SandboxMount, sandboxMounts, SANDBOX_PNPM_STORE } from "./sandboxMounts.js";
 
 const exec = promisify(execFile);
@@ -23,7 +23,6 @@ const DOCKERFILE = fileURLToPath(new URL("../Dockerfile", import.meta.url));
 const IMPLEMENT_PROMPT = fileURLToPath(new URL("../prompts/implement.md", import.meta.url));
 const REVIEW_PROMPT = fileURLToPath(new URL("../prompts/review.md", import.meta.url));
 const VERIFY_PROMPT = fileURLToPath(new URL("../prompts/verify.md", import.meta.url));
-const MERGE_PROMPT = fileURLToPath(new URL("../prompts/merge.md", import.meta.url));
 
 /** 同一個 hook 點的多個 command 會平行跑，所以 install 和 chromium 串成一條。 */
 const SETUP_COMMAND = "cd frontend && timeout 300 pnpm install --frozen-lockfile && pnpm exec playwright install chromium";
@@ -49,7 +48,7 @@ function describeFailure(err: unknown): unknown {
  * 整合驗證見 docs/verification.md 與真機實測。
  */
 export function createSandbox(config: Config, secrets: Record<string, string>): Sandbox {
-  /** 實作、reviewer、merge run 共用的 run() 參數；只差 prompt、多帶的 prompt 參數、回報的 schema */
+  /** 實作、reviewer、驗收 run 共用的 run() 參數；只差 prompt、多帶的 prompt 參數、回報的 schema */
   function runAgent<S extends StandardSchemaV1>(
     { imageTag, issue, branch, baseRef, signal }: ImplementRequest,
     promptFile: string,
@@ -129,17 +128,6 @@ export function createSandbox(config: Config, secrets: Record<string, string>): 
       } finally {
         await cleanVerificationSecrets(req.evidenceDir);
       }
-    },
-
-    // branch 是整合分支 agent/<S>（host 已把本地的重設到 origin/agent/<S>）；agent/<A> 是 bot clone 的本地 branch，worktree 裡直接 merge 得到。
-    // 回報是 reviewer 去掉 browserVerify 的 schema（pass／wip、摘要、重跑的檢查）
-    async merge(req: MergeRequest) {
-      return (
-        await runAgent(req, MERGE_PROMPT, checkResultSchema, "merge", {
-          // 不能用 SOURCE_BRANCH／TARGET_BRANCH：sandcastle 保留給自己（BUILT_IN_PROMPT_ARG_KEYS），傳了會在開 container 前丟錯
-          args: { MERGE_SOURCE: req.source, MERGE_TARGET: req.branch },
-        })
-      ).output;
     },
   };
 }

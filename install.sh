@@ -67,7 +67,7 @@ import { readSecrets } from "./src/secrets.ts";
 import { sandboxAgent } from "./src/sandboxAgent.ts";
 import { sandboxMounts } from "./src/sandboxMounts.ts";
 sandboxAgent(config, readSecrets(config.secretsFile));
-for (const phase of ["implement", "review", "verify", "merge"]) sandboxMounts(config, phase);
+for (const phase of ["implement", "review", "verify"]) sandboxMounts(config, phase);
 JS
 
 step "systemd units → $UNIT_DIR"

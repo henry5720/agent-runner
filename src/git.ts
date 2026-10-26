@@ -32,6 +32,8 @@ export function createGit(opts: { repoPath: string }): Git {
       return git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).then(() => true, () => false);
     },
     async mergeInto(target, source) {
+      // 實作期間操作者可能 push 整合分支，合併前先更新，才能偵測衝突並保留人的改動。
+      await git(["fetch", "origin", `+refs/heads/${target}:refs/remotes/origin/${target}`]);
       // 主 checkout 不能切到 agent/*（sandcastle 的限制），在暫時的 detached worktree 裡合，合完直接 push 到遠端的 target
       const dir = await mkdtemp(join(tmpdir(), "agent-runner-merge-"));
       const inDir = async (args: string[]) => (await run("git", ["-C", dir, ...args], { maxBuffer: 16 * 1024 * 1024 })).stdout;
@@ -55,21 +57,6 @@ export function createGit(opts: { repoPath: string }): Git {
           await git(["worktree", "prune"]);
         });
       }
-    },
-    async pushMerge(target, source) {
-      const contains = (ancestor: string) => git(["merge-base", "--is-ancestor", ancestor, target]).then(() => true, () => false);
-      // source 整條都在（agent 真的合了）、origin/<target> 也都在（沒改寫整合分支）才 push
-      if (!(await contains(source)) || !(await contains(`origin/${target}`))) return { kind: "not-merged" };
-      // 不 force：merge run 期間有人往遠端 push 就讓它被拒，不蓋掉人的 commit
-      try {
-        await git(["push", "origin", `${target}:refs/heads/${target}`]);
-      } catch (err) {
-        // 只有「遠端有本地沒有的 commit」這種被拒算 rejected；權限、網路等錯誤照常丟出去
-        const stderr = String((err as { stderr?: unknown }).stderr ?? "");
-        if (/\[rejected\]|non-fast-forward|fetch first/.test(stderr)) return { kind: "rejected" };
-        throw err;
-      }
-      return { kind: "merged", sha: (await git(["rev-parse", target])).trim() };
     },
     async hasCommits(branch, baseRef) {
       return Number((await git(["rev-list", "--count", `${baseRef}..${branch}`])).trim()) > 0;

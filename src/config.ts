@@ -4,7 +4,7 @@ import type { AutoOffSchedule } from "./autoOff.js";
 
 export type AgentKind = "claude" | "codex";
 
-export type SandboxPhase = "implement" | "review" | "merge" | "verify";
+export type SandboxPhase = "implement" | "review" | "verify";
 
 export interface SandboxSkill {
   name: string;
@@ -78,8 +78,8 @@ export const config: Config = {
     { name: "code-review", hostPath: join(home, ".config/skillshare/skills/code-review"), phases: ["review"], dependencies: [] },
     { name: "tdd", hostPath: join(home, ".config/skillshare/skills/tdd"), phases: ["implement"], dependencies: ["codebase-design"] },
     { name: "codebase-design", hostPath: join(home, ".config/skillshare/skills/codebase-design"), phases: ["implement"], dependencies: [] },
-    { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
-    { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "merge", "verify"], dependencies: [] },
+    { name: "writing-for-agents", hostPath: join(home, ".config/skillshare/skills/writing-for-agents"), phases: ["implement", "review", "verify"], dependencies: [] },
+    { name: "show-me", hostPath: join(home, ".config/skillshare/skills/show-me"), phases: ["implement", "review", "verify"], dependencies: [] },
     { name: "verify-in-browser", hostPath: join(home, ".config/skillshare/skills/verify-in-browser"), phases: ["verify"], dependencies: [] },
   ],
   gitAuthor: "henry (agent)",

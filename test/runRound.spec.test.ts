@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runRound } from "../src/runRound.js";
-import type { ReviewResult } from "../src/result.js";
-import { fakeDeps, humanRequeues, issue, passResult, verificationResult, reviewResult, type ScriptedFailure, testConfig } from "./support/fakes.js";
+import { fakeDeps, humanRequeues, issue, passResult, verificationResult, reviewResult, testConfig } from "./support/fakes.js";
 
 /** spec #40 底下的 sub-issue #42（parent 不是 wayfinder:map） */
 const subIssue = (n = 42) =>
@@ -150,192 +149,57 @@ describe("runRound — spec sub-issue: [WIP]", () => {
 });
 
 
-describe("runRound — spec sub-issue: merge conflict goes to a merge run", () => {
-  const conflictDeps = (merge: ReviewResult | ScriptedFailure, review?: ReviewResult) => {
-    const deps = fakeDeps({
-      issues: [subIssue()],
-      results: { 42: passResult({ prTitle: "feat(report): 匯出" }) },
-      merges: { 42: merge },
-      ...(review ? { reviews: { 42: review } } : {}),
-    });
+describe("runRound — spec sub-issue: merge conflict goes directly to WIP", () => {
+  const conflictDeps = (review = reviewResult()) => {
+    const deps = fakeDeps({ issues: [subIssue()], results: { 42: passResult({ prTitle: "feat(report): 匯出" }) }, reviews: { 42: review } });
     deps.git.humanPushes("agent/40", "henry5720");
     deps.git.conflicts.add("agent/42");
     return deps;
   };
-  const resolved = () => reviewResult({ summary: "兩邊都保留", verification: [{ command: "pnpm test run src/report", result: "9 passed" }] });
 
-  it("runs a merge sandbox run on agent/<S>, starting from origin/agent/<S>, to merge agent/<A> in", async () => {
-    const deps = conflictDeps(resolved());
-
-    await runRound(testConfig, deps);
-
-    expect(deps.sandbox.merges.map((m) => ({ branch: m.branch, baseRef: m.baseRef, source: m.source, issue: m.issue.number }))).toEqual([
-      { branch: "agent/40", baseRef: "origin/agent/40", source: "agent/42", issue: 42 },
-    ]);
-  });
-
-  it("does not run a merge run when the merge has no conflict", async () => {
-    const deps = fakeDeps({ issues: [subIssue()], results: { 42: passResult() } });
-
-    await runRound(testConfig, deps);
-
-    expect(deps.sandbox.merges).toEqual([]);
-  });
-
-  it("resolved with checks passing: pushes the merged agent/<S>, keeping what was there, and opens the spec's draft PR", async () => {
-    const deps = conflictDeps(resolved());
+  it("preserves integration, publishes the sub-issue as a WIP draft, and leaves it open for a human", async () => {
+    const deps = conflictDeps();
     const before = [...deps.git.remoteCommits.get("agent/40")!];
 
     await runRound(testConfig, deps);
 
-    expect({
-      merged: deps.git.remoteContains("agent/40", "agent/42"),
-      kept: before.every((c) => deps.git.remoteCommits.get("agent/40")!.includes(c)),
-      prs: deps.github.prs.map((p) => ({ base: p.base, head: p.head, draft: p.draft, closesSpec: p.body.startsWith("Closes #40") })),
-    }).toEqual({ merged: true, kept: true, prs: [{ base: "dev", head: "agent/40", draft: true, closesSpec: true }] });
-  });
-
-  it("resolved with checks passing: comments the merge commit and the merge run's checks on #A, then closes it", async () => {
-    const deps = conflictDeps(resolved());
-
-    await runRound(testConfig, deps);
-
-    const mergeSha = deps.git.remoteCommits.get("agent/40")!.at(-1)!.sha;
-    expect(deps.github.issue(42)).toMatchObject({
-      state: "CLOSED",
-      labels: [],
-      comments: [expect.stringContaining("已接單"), expect.stringMatching(new RegExp(`${mergeSha}[\\s\\S]*衝突[\\s\\S]*pnpm test run src/report[\\s\\S]*9 passed`))],
-    });
-  });
-
-  it("not resolved: leaves agent/<S> untouched and opens a [WIP] draft PR from agent/<A> into agent/<S>", async () => {
-    const deps = conflictDeps(reviewResult({ outcome: "wip", failedChecks: ["src/report.ts 的衝突解不掉"] }));
-    const before = [...deps.git.remoteCommits.get("agent/40")!];
-
-    await runRound(testConfig, deps);
-
-    expect({
-      integration: deps.git.remoteCommits.get("agent/40"),
-      prs: deps.github.prs.map((p) => ({ base: p.base, head: p.head, draft: p.draft, title: p.title })),
-    }).toEqual({ integration: before, prs: [{ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(report): 匯出" }] });
+    expect(deps.git.remoteCommits.get("agent/40")).toEqual(before);
+    expect(deps.git.remoteContains("agent/42", "agent/42")).toBe(true);
+    expect(deps.github.prs).toMatchObject([{ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(report): 匯出" }]);
+    expect(deps.github.prs[0]?.body).toMatch(/## 沒過的檢查[\s\S]*衝突[\s\S]*人工/);
+    expect(deps.github.issue(42)).toMatchObject({ state: "OPEN", labels: [], assignees: [], comments: [expect.stringContaining("已接單"), expect.stringMatching(/衝突[\s\S]*pull\/\d+/)] });
+    expect(deps.notifier.messages.at(-1)).toMatch(/🚧[\s\S]*衝突/);
+    expect(deps.sandbox.runs).toHaveLength(1);
+    expect(deps.sandbox.reviews).toHaveLength(1);
   });
 
   it.each([
-    { browserVerify: { needed: false, reason: "只改了 CLI 參數解析" }, section: "不驗：只改了 CLI 參數解析（reviewer 判斷）" },
-    { browserVerify: { needed: true, reason: "改了按鈕" }, section: "證據：/state/evidence/run（runner 主機本機，不在 git）" },
-  ])("not resolved: the [WIP] PR's 瀏覽器驗收 section keeps the reviewer's own call ($section)", async ({ browserVerify, section }) => {
-    const deps = conflictDeps(reviewResult({ outcome: "wip", failedChecks: ["src/report.ts 的衝突解不掉"] }), reviewResult({ browserVerify }));
+    { browserVerify: { needed: false, reason: "只改 CLI" }, expected: "不驗：只改 CLI（reviewer 判斷）" },
+    { browserVerify: { needed: true, reason: "改了按鈕" }, expected: "| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |" },
+  ])("preserves the pre-merge browser verdict instead of calling it a reviewer failure ($expected)", async ({ browserVerify, expected }) => {
+    const deps = conflictDeps(reviewResult({ browserVerify }));
     deps.sandbox.verificationResults[42] = verificationResult();
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.prs[0]?.body.match(/## 瀏覽器驗收\n\n([^\n]*)/)?.[1]).toBe(section);
+    expect(deps.github.prs[0]?.body).toContain(expected);
+    expect(deps.github.prs[0]?.body).not.toContain("reviewer 回 wip");
+    expect(deps.github.prs[0]?.body).not.toContain("解完合併衝突後沒有重驗");
   });
 
-  it("checks fail after resolving: keeps #A open and unassigned, with a comment saying it was a merge conflict and what failed", async () => {
-    const deps = conflictDeps(reviewResult({ outcome: "wip", failedChecks: ["pnpm run typecheck"] }));
+  it("updates an existing ready sub-issue PR to WIP draft without changing the spec PR", async () => {
+    const deps = conflictDeps();
+    const common = { title: "old", body: "existing", draft: true, assignee: testConfig.operator };
+    await deps.github.createPr({ ...common, head: "agent/40", base: "dev" });
+    await deps.github.createPr({ ...common, head: "agent/42", base: "agent/40", draft: false });
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(42)).toMatchObject({
-      state: "OPEN",
-      labels: [],
-      assignees: [],
-      comments: [expect.stringContaining("已接單"), expect.stringMatching(/衝突[\s\S]*pull\/\d+[\s\S]*pnpm run typecheck/)],
-    });
-  });
-
-  it("merge run says pass but agent/<S> holds no merge of agent/<A>: does not push agent/<S>, ends as [WIP]", async () => {
-    const deps = conflictDeps(resolved());
-    deps.sandbox.mergeless.add(42);
-    const before = [...deps.git.remoteCommits.get("agent/40")!];
-
-    await runRound(testConfig, deps);
-
-    expect({ integration: deps.git.remoteCommits.get("agent/40"), state: deps.github.issue(42).state, prs: deps.github.prs.map((p) => [p.head, p.base]) }).toEqual({
-      integration: before,
-      state: "OPEN",
-      prs: [["agent/42", "agent/40"]],
-    });
-  });
-
-  it.each([
-    { ending: "crash", merge: { throws: new Error("docker: container exited") }, reason: /docker: container exited/ },
-    { ending: "timeout", merge: { throws: new DOMException("The operation timed out.", "TimeoutError") }, reason: /timeout/ },
-  ])("merge run $ending: ends as a crash, agent/<S> untouched, no PR, #A open and unassigned", async ({ merge, reason }) => {
-    const deps = conflictDeps(merge);
-    const before = [...deps.git.remoteCommits.get("agent/40")!];
-
-    await runRound(testConfig, deps);
-
-    expect({
-      integration: deps.git.remoteCommits.get("agent/40"),
-      prs: deps.github.prs,
-      issue: deps.github.issue(42),
-      slack: deps.notifier.messages.at(-1),
-    }).toMatchObject({
-      integration: before,
-      prs: [],
-      issue: { state: "OPEN", labels: [], assignees: [], comments: [expect.stringContaining("已接單"), expect.stringMatching(reason)] },
-      slack: expect.stringMatching(reason),
-    });
-  });
-
-  it("merge run crash: points #A's comment at the half-resolved agent/<S> worktree and says it is cleared on the next conflict", async () => {
-    const deps = conflictDeps({ throws: new Error("docker: container exited"), leavesWorktree: true });
-
-    await runRound(testConfig, deps);
-
-    expect(deps.github.issue(42).comments.at(-1)).toMatch(
-      new RegExp(`${testConfig.botClonePath}/\\.sandcastle/worktrees/agent-40[\\s\\S]*下次[\\s\\S]*衝突[\\s\\S]*清掉`),
-    );
-  });
-
-  describe("someone pushes to agent/<S> while the merge run resolves", () => {
-    const racedDeps = () => {
-      const deps = conflictDeps(resolved());
-      deps.sandbox.duringMerge = () => deps.git.humanPushes("agent/40", "henry5720");
-      return deps;
-    };
-
-    it("does not fail the round: keeps the human's agent/<S> and opens a [WIP] draft PR from agent/<A> into agent/<S>", async () => {
-      const deps = racedDeps();
-      let humans: unknown;
-      const during = deps.sandbox.duringMerge!;
-      deps.sandbox.duringMerge = () => {
-        during();
-        humans = [...deps.git.remoteCommits.get("agent/40")!];
-      };
-
-      await runRound(testConfig, deps);
-
-      expect({
-        integration: deps.git.remoteCommits.get("agent/40"),
-        prs: deps.github.prs.map((p) => ({ base: p.base, head: p.head, draft: p.draft, title: p.title })),
-      }).toEqual({ integration: humans, prs: [{ base: "agent/40", head: "agent/42", draft: true, title: "[WIP] feat(report): 匯出" }] });
-    });
-
-    it("keeps #A open and unassigned, saying agent/<S> changed during the merge run and the push was rejected", async () => {
-      const deps = racedDeps();
-
-      await runRound(testConfig, deps);
-
-      expect(deps.github.issue(42)).toMatchObject({
-        state: "OPEN",
-        labels: [],
-        assignees: [],
-        comments: [expect.stringContaining("已接單"), expect.stringMatching(/merge run 期間被改過[\s\S]*push 被拒/)],
-      });
-    });
-  });
-
-  it("is not blocked by a worktree of agent/<S> left behind by an earlier merge run", async () => {
-    const deps = conflictDeps(resolved());
-    deps.git.worktrees.push({ name: "agent-40", path: `${testConfig.botClonePath}/.sandcastle/worktrees/agent-40`, modifiedAt: deps.clock.now() });
-
-    await runRound(testConfig, deps);
-
-    expect({ merged: deps.git.remoteContains("agent/40", "agent/42"), closed: deps.github.issue(42).state }).toEqual({ merged: true, closed: "CLOSED" });
+    expect(deps.github.prs).toMatchObject([
+      { head: "agent/40", body: "existing" },
+      { head: "agent/42", base: "agent/40", draft: true, title: "[WIP] feat(report): 匯出" },
+    ]);
+    expect(deps.github.issue(42).state).toBe("OPEN");
   });
 });
 
@@ -484,22 +348,23 @@ describe("runRound — spec sub-issue: verification failures and merge conflicts
     expect(deps.github.prs[0]?.body).toContain("刪除後出現 toast：刪除後未顯示訊息");
   });
 
-  it("marks successful conflict resolution as not reverified while retaining the pre-merge table", async () => {
+  it("keeps the browser evidence on the WIP sub-issue PR after a merge conflict", async () => {
     const deps = fakeDeps({
       issues: [subIssue()], results: { 42: passResult() },
       reviews: { 42: reviewResult({ browserVerify: { needed: true, reason: "刪除互動" } }) },
-      verifications: { 42: verificationResult() }, merges: { 42: reviewResult() },
+      verifications: { 42: verificationResult() },
     });
     deps.git.humanPushes("agent/40", "henry");
     deps.git.conflicts.add("agent/42");
 
     await runRound(testConfig, deps);
 
-    expect(deps.github.issue(42).state).toBe("CLOSED");
-    expect(deps.github.prs[0]?.body).toContain("### 瀏覽器驗收");
+    expect(deps.github.issue(42).state).toBe("OPEN");
+    expect(deps.github.prs[0]).toMatchObject({ base: "agent/40", head: "agent/42", draft: true });
+    expect(deps.github.prs[0]?.body).toContain("## 瀏覽器驗收");
     expect(deps.github.prs[0]).toMatchObject({ evidence: { directory: "/state/evidence/run", files: ["toast.png"] } });
     expect(deps.github.prs[0]?.body).toContain("| 刪除後出現 toast | passed | E2E | 顯示刪除成功 | toast.png |");
-    expect(deps.github.prs[0]?.body).toContain("解完合併衝突後沒有重驗");
+    expect(deps.github.prs[0]?.body).not.toContain("解完合併衝突後沒有重驗");
     expect(deps.sandbox.verifications).toHaveLength(1);
   });
 });

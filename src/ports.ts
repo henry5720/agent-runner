@@ -2,7 +2,7 @@
  * runRound() 的系統邊界。一個操作一個 method（SDK 風格），測試用 test/support/fakes.ts 的 in-memory 版本。
  * 真的實作：github.ts（gh）、git.ts（bot clone）、sandbox.ts（sandcastle + docker）、notifier.ts、clock.ts。
  */
-import type { CheckResult, ImplementResult, ReviewResult } from "./result.js";
+import type { ImplementResult, ReviewResult } from "./result.js";
 import type { Issue } from "./types.js";
 import type { VerificationRunResult } from "./browserVerification.js";
 
@@ -30,12 +30,6 @@ export interface OpenPr {
 
 /** `mergeInto` 的結果：合進去並 push 了（sha 是合併後 target 的 HEAD）／有衝突，已 abort、什麼都沒 push */
 export type MergeOutcome = { kind: "merged"; sha: string } | { kind: "conflict" };
-
-/**
- * `pushMerge` 的結果：本地 target 真的是合併結果、已 push（sha 是 push 上去的 HEAD）／本地 target 不含 source 或改寫了 origin/<target>，什麼都沒 push／
- * 遠端 target 在這之間被人 push 過，push 被拒（non-fast-forward），遠端沒動
- */
-export type PushMergeOutcome = { kind: "merged"; sha: string } | { kind: "not-merged" } | { kind: "rejected" };
 
 export interface GitHub {
   /** 候選單（設定裡的挑單條件）；順序不保證 */
@@ -76,11 +70,6 @@ export interface Git {
    * 沒衝突就 push 到 origin 的 <target>（不 force；target 沒動過時 git 會直接 fast-forward）；有衝突就 `merge --abort`，什麼都不 push。
    */
   mergeInto(target: string, source: string): Promise<MergeOutcome>;
-  /**
-   * merge run 解完衝突之後：本地 <target> 同時包含 <source> 和 `origin/<target>`（agent 真的合了、沒改寫整合分支）才
-   * `git push origin <target>`（不 force）；否則什麼都不 push，回 not-merged。遠端被人動過、push 被拒 → rejected；其他 push 錯誤照常丟出去。
-   */
-  pushMerge(target: string, source: string): Promise<PushMergeOutcome>;
   /** `git branch -f <branch> <startPoint>` */
   resetBranch(branch: string, startPoint: string): Promise<void>;
   /** `git push --force-with-lease origin <branch>` */
@@ -109,11 +98,6 @@ export interface ImplementRequest {
   signal: AbortSignal;
 }
 
-/** 解合併衝突的 run：`branch` 是整合分支 agent/<S>（從 `baseRef` = origin/agent/<S> 開），要把 `source` = agent/<A> 合進來 */
-export interface MergeRequest extends ImplementRequest {
-  source: string;
-}
-
 export interface VerifyRequest extends ImplementRequest {
   /** runner 狀態目錄下，這張單這一輪專用的 host 絕對路徑 */
   evidenceDir: string;
@@ -135,11 +119,6 @@ export interface Sandbox {
   review(req: ImplementRequest): Promise<ReviewResult>;
   /** reviewer 後另起乾淨 sandbox，只讀 diff 與驗收條件，證據留在 host */
   verify(req: VerifyRequest): Promise<VerificationRunResult>;
-  /**
-   * `git merge <source>` 有衝突時另跑一次 run：agent 在 agent/<S> 上合、解衝突、重跑檢查、commit，回報 pass／wip（reviewer 的 schema 去掉 browserVerify）。
-   * 失敗照 implement 的規則 throw；push 由 host 做
-   */
-  merge(req: MergeRequest): Promise<CheckResult>;
 }
 
 export interface Notifier {

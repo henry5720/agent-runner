@@ -21,8 +21,8 @@ export const implementResultSchema = z.object({
 
 export type ImplementResult = z.infer<typeof implementResultSchema>;
 
-/** reviewer run 與 merge run 共用的回報：重跑檢查的結果。merge run 的回報就是這個形狀。 */
-export const checkResultSchema = z.object({
+/** reviewer 重跑檢查後的回報。 */
+const checkResultSchema = z.object({
   /** 修正之後，重跑檢查的結果 */
   outcome: z.enum(["pass", "wip"]),
   /** 這次 run 改了什麼（markdown）；沒改就空字串 */
@@ -35,8 +35,6 @@ export const checkResultSchema = z.object({
   /** 新增或升級的依賴 */
   dependencies: z.array(z.string()).default([]),
 });
-
-export type CheckResult = z.infer<typeof checkResultSchema>;
 
 /** reviewer run（乾淨 context 跑目標 repo 的 code-review）回報的結果。review 後重跑的檢查以這份為準；另外判這張單要不要做瀏覽器驗收。 */
 export const reviewResultSchema = checkResultSchema.extend({
