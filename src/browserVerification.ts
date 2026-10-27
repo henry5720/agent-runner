@@ -50,6 +50,9 @@ export async function browserVerificationSchema(config: Config) {
   });
 }
 
+/** 瀏覽器驗收段的「證據：」那行；prEvidence 靠它找到本次 run 的段落，兩邊都要用這個 builder。 */
+export const evidenceDirLine = (directory: string) => `證據：${directory}（runner 主機本機，不在 git）`;
+
 const cell = (value: string) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("|", "&#124;").replace(/\r\n|\r|\n/g, "<br>");
 
 export function browserVerificationText(report: BrowserVerification): string {
@@ -61,7 +64,7 @@ export function browserVerificationText(report: BrowserVerification): string {
     ...(unrelated ? [`另有 ${unrelated} 則判定與本次 diff 無關`] : []),
   ].join("\n");
   return [
-    `證據：${report.evidenceDir}（runner 主機本機，不在 git）`,
+    evidenceDirLine(report.evidenceDir),
     report.status === "unverifiable"
       ? `驗不了：${report.unverifiableReason}`
       : ["| 條件 | 結果 | 帳號 | 看到什麼／原因 | 證據 |", "|---|---|---|---|---|", ...rows].join("\n"),

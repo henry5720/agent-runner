@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createGitHub } from "../src/github.js";
+import { evidenceDirLine } from "../src/browserVerification.js";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dirname, "fixtures", name), "utf8");
 const fakeGh = join(import.meta.dirname, "support", "fake-gh.mjs");
@@ -44,7 +45,7 @@ describe("github adapter against recorded gh output", () => {
     const root = mkdtempSync(join(tmpdir(), "gh-evidence-"));
     const directory = join(root, "42-run"); mkdirSync(directory);
     writeFileSync(join(directory, "screen.png"), Buffer.from("89504e470d0a1a0a0000000000000000", "hex"));
-    const body = `## 瀏覽器驗收\n證據：${directory}（runner 主機本機，不在 git）\n| image | screen.png |`;
+    const body = `## 瀏覽器驗收\n${evidenceDirLine(directory)}\n| image | screen.png |`;
     const { github, calls } = withFakeGh([
       { match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/7\n" },
       { match: ["pr", "edit"], stdout: "" },
@@ -60,7 +61,7 @@ describe("github adapter against recorded gh output", () => {
     const root = mkdtempSync(join(tmpdir(), "gh-evidence-"));
     const directory = join(root, "42-run"); mkdirSync(directory);
     writeFileSync(join(directory, "screen.png"), Buffer.from("89504e470d0a1a0a0000000000000000", "hex"));
-    const body = `## 瀏覽器驗收\n證據：${directory}（runner 主機本機，不在 git）\n| image | screen.png |`;
+    const body = `## 瀏覽器驗收\n${evidenceDirLine(directory)}\n| image | screen.png |`;
     const { github, calls } = withFakeGh([
       { match: ["pr", "create"], stdout: "https://github.com/acme/widgets/pull/8\n" },
       { match: ["pr", "edit", "8", "-R", "acme/widgets", "--attach"], code: 1, stderr: "upload failed" },

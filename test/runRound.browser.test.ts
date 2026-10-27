@@ -60,7 +60,7 @@ describe("runRound — browser verification", () => {
     expect(deps.github.prs[0]?.body).toContain("驗不了：dev server 起不來");
     expect(deps.github.prs[0]?.body).not.toContain("| 條件 |");
     expect(deps.github.prs[0]?.body).not.toContain("驗收 run 沒交出合格結果");
-    expect(deps.github.prs[0]?.evidence).toEqual({ directory: "/state/evidence/run", files: [] });
+    expect(deps.github.prs[0]?.evidence).toEqual({ directory: "/state/evidence/run", files: [], unverifiableReason: "dev server 起不來" });
   });
 
   it("turns malformed verification output into WIP instead of a crash or unverifiable result", async () => {
