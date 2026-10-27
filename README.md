@@ -172,7 +172,7 @@ chezmoi 繼續部署 host 的 global 規則；Skillshare 繼續維護 skills sou
 
 目標 repo 的 project MCP 載入方式、瀏覽器條件與未驗範圍見 [sandbox MCP 參考](docs/sandbox-mcp.md)。
 
-不掛整個 home、`.claude`、`.codex`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。image 固定安裝 `@playwright/cli@0.1.22`，驗收 run 另裝 CLI 對應的 Chromium。UI 真實驗收仍須實跑，unit tests 只驗證 runner 的流程與 adapter 接線；證據原檔留在主機；host 用 `gh pr edit --attach` 把採信結果引用的圖片／影片上傳成 PR 附件，表格內直接顯示圖片。unit test 輸出、JSON、登入狀態與工具暫存不附。附件上傳未完成時保留 PR 與已成功的網址，並明寫尚需補傳。主機的 gh 須支援 `--attach`。
+不掛整個 home、`.claude`、`.codex`、Skillshare 設定目錄、MCP 設定或 credentials。host-only 工具、互動確認、額外 worktree 管理與 `gh` 不會因為 global 規則被掛入就變成可用；缺少必要確認回報 `needs-info`，驗證能力不足列出未驗，必要檢查未驗回報 `wip`。例如 `show-me` 可輸出文字圖，但不能假定 host 的 `open` 存在。image 固定安裝 `@playwright/cli@0.1.22`，驗收 run 另裝 CLI 對應的 Chromium。UI 真實驗收仍須實跑，unit tests 只驗證 runner 的流程與 adapter 接線；證據原檔留在主機；結果採信時，host 用 `gh pr edit --attach` 只上傳驗收 agent 登錄過的圖片／影片：表格引用的顯示在儲存格內；驗不了時，原因裡點名的檔列在「證據：」那行之後。每檔須在證據資料夾內、內容符合副檔名、不超過 10 MB（超過的留檔名註明），一次最多 50 個。unit test 輸出、JSON、登入狀態與工具暫存不附。附件上傳未完成時保留 PR 與已成功的網址，並明寫尚需補傳。主機的 gh 須支援 `--attach`。
 
 驗收證據保留在 `<stateDir>/evidence/<issue>-<唯一值>`，每張單每一輪各一份，不在 git，也不跟 worktree 的三天清除規則走。驗收結束（包含失敗、timeout）會刪掉資料夾內的 `auth*.json` 與 `.playwright-cli/`，保留 `state.json`。
 

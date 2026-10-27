@@ -304,9 +304,10 @@ async function askAboutForeignCommits(github: Deps["github"], n: number, authors
   return reason;
 }
 
-/** 只發布真正呼叫 skill 且採信的驗收結果引用的證據。 */
+/** 只發布真正呼叫 skill 且採信的驗收結果登錄的證據：表格引用的檔，驗不了時再加原因裡點名的檔。 */
 function prEvidence(review: ReviewResult): PrEvidence | undefined {
   if (review.browserVerificationFailure || !review.browserVerification?.skillInvoked) return;
   const report = review.browserVerification.report;
-  return { directory: report.evidenceDir, files: [...new Set(report.criteria.flatMap((criterion) => criterion.evidence))] };
+  const files = [...new Set(report.criteria.flatMap((criterion) => criterion.evidence))];
+  return report.unverifiableReason ? { directory: report.evidenceDir, files, unverifiableReason: report.unverifiableReason } : { directory: report.evidenceDir, files };
 }

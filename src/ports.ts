@@ -8,7 +8,10 @@ import type { VerificationRunResult } from "./browserVerification.js";
 
 export interface PrEvidence {
   directory: string;
+  /** 表格引用的證據檔名（相對 directory） */
   files: string[];
+  /** 驗不了時的原因；裡面點名的證據檔也會附上 */
+  unverifiableReason?: string;
 }
 
 export interface NewPr {
